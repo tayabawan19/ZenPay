@@ -155,6 +155,8 @@ export const useAuthStore = create((set, get) => ({
       
       // Sync profile to backend
       get().syncProfileWithBackend(profileData);
+      // Fetch latest profile balance from backend
+      get().fetchProfile(user.uid);
       
       // Start real-time profile listener
       get().startUserListener(user.uid);
@@ -270,10 +272,13 @@ export const useAuthStore = create((set, get) => ({
         await get().syncProfileWithBackend(userData);
       } catch (fsErr) {
         console.warn("Firestore user doc create failed, using AsyncStorage fallback: ", fsErr.message);
-        await AsyncStorage.setItem(`zenpay_profile_${uid}`, JSON.stringify({
+        const localData = {
           ...userData,
           createdAt: new Date().toISOString()
-        }));
+        };
+        await AsyncStorage.setItem(`zenpay_profile_${uid}`, JSON.stringify(localData));
+        // Sync profile to backend fallback
+        await get().syncProfileWithBackend(localData);
       }
       
       set({ isLoading: false });
@@ -303,7 +308,12 @@ export const useAuthStore = create((set, get) => ({
       } else {
         AsyncStorage.getItem(`zenpay_profile_${uid}`).then((localData) => {
           if (localData) {
-            set({ profile: JSON.parse(localData), isLoading: false });
+            const parsed = JSON.parse(localData);
+            set({ profile: parsed, isLoading: false });
+            // Sync with backend
+            get().syncProfileWithBackend(parsed);
+            // Fetch latest balance from backend
+            get().fetchProfile(uid);
           } else {
             set({ profile: null, isLoading: false });
           }
@@ -316,7 +326,12 @@ export const useAuthStore = create((set, get) => ({
       try {
         const localData = await AsyncStorage.getItem(`zenpay_profile_${uid}`);
         if (localData) {
-          set({ profile: JSON.parse(localData), isLoading: false });
+          const parsed = JSON.parse(localData);
+          set({ profile: parsed, isLoading: false });
+          // Sync with backend
+          get().syncProfileWithBackend(parsed);
+          // Fetch latest balance from backend
+          get().fetchProfile(uid);
           return;
         }
       } catch (storageErr) {
