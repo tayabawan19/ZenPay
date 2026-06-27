@@ -99,27 +99,18 @@ export const GlobalBackground = ({ children }) => {
     startOscillation(blob3X, 20, 7000);
     startOscillation(blob3Y, 25, 9000);
     startScaleOscillation(blob3Scale, 1.0, 1.4, 14000);
-
     // Start Particle Animations
     particles.forEach((p) => {
-      let initialDelay = p.delay;
-      const runParticle = () => {
-        p.anim.setValue(0);
-        Animated.sequence([
-          Animated.delay(initialDelay),
+      Animated.sequence([
+        Animated.delay(p.delay),
+        Animated.loop(
           Animated.timing(p.anim, {
             toValue: 1,
             duration: p.duration,
-            useNativeDriver: false,
+            useNativeDriver: true,
           })
-        ]).start(({ finished }) => {
-          if (finished) {
-            initialDelay = 0; // No delay for subsequent loops
-            runParticle();
-          }
-        });
-      };
-      runParticle();
+        )
+      ]).start();
     });
   }, []);
 

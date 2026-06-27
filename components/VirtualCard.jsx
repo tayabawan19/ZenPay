@@ -13,18 +13,16 @@ export const VirtualCard = ({ cardDetails, cardholderName, isFrozen }) => {
   const shimmerX = useRef(new Animated.Value(-300)).current;
 
   useEffect(() => {
-    const startShimmer = () => {
-      shimmerX.setValue(-300);
+    Animated.loop(
       Animated.sequence([
         Animated.timing(shimmerX, {
           toValue: 300,
           duration: 3000,
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
         Animated.delay(4000),
-      ]).start(() => startShimmer());
-    };
-    startShimmer();
+      ])
+    ).start();
   }, []);
 
   const handleCardPress = () => {

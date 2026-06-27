@@ -24,18 +24,16 @@ export const BalanceCard = ({ profile, isLoading, onTopUp, onSend, onReceive }) 
 
   // 1. Shimmer loop: 3s sweep, 5s delay
   useEffect(() => {
-    const startShimmer = () => {
-      shimmerX.setValue(-screenWidth);
+    Animated.loop(
       Animated.sequence([
         Animated.timing(shimmerX, {
           toValue: screenWidth,
           duration: 3000,
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
         Animated.delay(5000),
-      ]).start(() => startShimmer());
-    };
-    startShimmer();
+      ])
+    ).start();
   }, []);
 
   // 2. Count-up animation
