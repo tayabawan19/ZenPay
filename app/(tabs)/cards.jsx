@@ -29,20 +29,28 @@ export default function CardsScreen() {
   const [customLimit, setCustomLimit] = useState('');
   const [isEditingLimit, setIsEditingLimit] = useState(false);
 
-  const card = profile?.virtualCard || {
-    number: '4242 4242 4242 4242',
-    expiry: '12/28',
-    cvv: '123',
-    limit: 50000,
-    spent: 0,
-    isActive: true,
-    onlinePayments: true,
+  // Spent amount: sum of all debit transactions (successful transfers and payments)
+  const cardSpent = transactions
+    .filter(tx => tx.senderId === profile?.uid && tx.status === 'success' && tx.category !== 'topup')
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const card = {
+    number: profile?.virtualCard?.number || '4242 4242 4242 4242',
+    expiry: profile?.virtualCard?.expiry || '12/28',
+    cvv: profile?.virtualCard?.cvv || '123',
+    limit: profile?.virtualCard?.limit || 50000,
+    spent: cardSpent,
+    isFrozen: profile?.virtualCard?.isFrozen || false,
+    onlinePayments: profile?.virtualCard?.onlinePayments ?? true,
   };
 
-  // Filter transactions to simulate card-specific spends (e.g. transfers and topups)
-  const cardTransactions = transactions.slice(0, 3);
+  // Card Purchases list should show all debit transactions (successful card-related transactions)
+  const cardTransactions = transactions.filter(
+    tx => tx.senderId === profile?.uid && tx.status === 'success' && tx.category !== 'topup'
+  );
 
   const handleLimitChange = async (amount) => {
+    if (card.isFrozen) return;
     try {
       await setCardLimit(amount);
       Alert.alert('Limit Updated', `Your daily spending limit is now ${formatPKR(amount)}.`);
@@ -52,6 +60,7 @@ export default function CardsScreen() {
   };
 
   const handleCustomLimitSubmit = () => {
+    if (card.isFrozen) return;
     const amt = parseFloat(customLimit);
     if (isNaN(amt) || amt <= 0) {
       Alert.alert('Invalid Amount', 'Please enter a valid positive number.');
@@ -71,18 +80,22 @@ export default function CardsScreen() {
         <VirtualCard
           cardDetails={card}
           cardholderName={profile?.name}
-          isFrozen={!card.isActive}
+          isFrozen={card.isFrozen}
         />
 
         <Text style={[styles.helperText, { color: theme.textSecondary }]}>
-          Tap card to reveal CVV security code
+          {card.isFrozen ? "Card Frozen — Actions Disabled" : "Tap card to reveal CVV security code"}
         </Text>
 
         {/* Card Details Panel */}
-        <View style={[styles.detailsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <View style={[styles.detailsCard, { backgroundColor: theme.card, borderColor: theme.border }, card.isFrozen && { opacity: 0.5 }]}>
           <TouchableOpacity 
             style={styles.detailsHeader} 
-            onPress={() => setShowDetails(!showDetails)}
+            onPress={() => {
+              if (card.isFrozen) return;
+              setShowDetails(!showDetails);
+            }}
+            disabled={card.isFrozen}
           >
             <View style={styles.detailsHeaderLeft}>
               <Ionicons name="eye-outline" size={20} color={theme.primary} />
@@ -95,7 +108,7 @@ export default function CardsScreen() {
             />
           </TouchableOpacity>
 
-          {showDetails && (
+          {showDetails && !card.isFrozen && (
             <View style={[styles.detailsExpanded, { borderTopColor: theme.border }]}>
               <View style={styles.detailRow}>
                 <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Card Number</Text>
@@ -129,7 +142,7 @@ export default function CardsScreen() {
               </View>
             </View>
             <Switch
-              value={!card.isActive}
+              value={card.isFrozen}
               onValueChange={toggleCardFreeze}
               trackColor={{ false: theme.border, true: theme.primary }}
               thumbColor="#FFFFFF"
@@ -139,7 +152,7 @@ export default function CardsScreen() {
           <View style={[styles.controlDivider, { backgroundColor: theme.border }]} />
 
           {/* 2. Online Payments Permission */}
-          <View style={styles.controlRow}>
+          <View style={[styles.controlRow, card.isFrozen && { opacity: 0.5 }]}>
             <View style={styles.controlInfo}>
               <View style={[styles.controlIconBg, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
                 <Ionicons name="globe-outline" size={20} color={theme.success} />
@@ -154,13 +167,13 @@ export default function CardsScreen() {
               onValueChange={toggleCardOnlinePayments}
               trackColor={{ false: theme.border, true: theme.success }}
               thumbColor="#FFFFFF"
-              disabled={!card.isActive}
+              disabled={card.isFrozen}
             />
           </View>
         </View>
 
         {/* Limits Setting Slider Panel */}
-        <View style={[styles.limitsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <View style={[styles.limitsCard, { backgroundColor: theme.card, borderColor: theme.border }, card.isFrozen && { opacity: 0.5 }]}>
           <View style={styles.limitHeader}>
             <View>
               <Text style={[styles.limitTitle, { color: theme.text }]}>Daily Spending Limit</Text>
@@ -169,8 +182,12 @@ export default function CardsScreen() {
               </Text>
             </View>
             <TouchableOpacity 
-              onPress={() => setIsEditingLimit(!isEditingLimit)}
+              onPress={() => {
+                if (card.isFrozen) return;
+                setIsEditingLimit(!isEditingLimit);
+              }}
               style={styles.editLimitBtn}
+              disabled={card.isFrozen}
             >
               <Text style={[styles.editLimitBtnText, { color: theme.primary }]}>
                 {isEditingLimit ? 'Cancel' : 'Edit'}
@@ -178,7 +195,7 @@ export default function CardsScreen() {
             </TouchableOpacity>
           </View>
 
-          {isEditingLimit ? (
+          {isEditingLimit && !card.isFrozen ? (
             <View style={styles.customLimitRow}>
               <View style={[styles.customLimitInputWrapper, { borderColor: theme.border }]}>
                 <TextInput
@@ -198,7 +215,7 @@ export default function CardsScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            /* Fast Selector Option Chips */
+            /* Fast Selector Chips */
             <View style={styles.limitChips}>
               {[10000, 25000, 50000, 100000].map((amt) => {
                 const isSelected = card.limit === amt;
@@ -211,7 +228,7 @@ export default function CardsScreen() {
                       isSelected && { backgroundColor: theme.primary, borderColor: theme.primary }
                     ]}
                     onPress={() => handleLimitChange(amt)}
-                    disabled={!card.isActive}
+                    disabled={card.isFrozen}
                   >
                     <Text style={[
                       styles.limitChipText,
@@ -226,7 +243,7 @@ export default function CardsScreen() {
             </View>
           )}
 
-          {/* Progress Bar of Limit vs Spent */}
+          {/* Progress Bar */}
           <View style={styles.limitBarContainer}>
             <View style={styles.limitBarLabelRow}>
               <Text style={[styles.limitBarLabel, { color: theme.textSecondary }]}>
@@ -359,14 +376,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginVertical: 4,
   },
   controlInfo: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   controlIconBg: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
@@ -382,7 +400,7 @@ const styles = StyleSheet.create({
   },
   controlDivider: {
     height: 1,
-    marginVertical: 14,
+    marginVertical: 12,
   },
   limitsCard: {
     borderWidth: 1,
@@ -393,7 +411,7 @@ const styles = StyleSheet.create({
   limitHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 14,
   },
   limitTitle: {
@@ -412,74 +430,74 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  limitChips: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  limitChip: {
-    borderWidth: 1.5,
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    flex: 1,
-    marginHorizontal: 4,
-    alignItems: 'center',
-  },
-  limitChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
   customLimitRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   customLimitInputWrapper: {
     flex: 1,
-    borderWidth: 1.5,
-    borderRadius: 12,
     height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
     paddingHorizontal: 12,
     justifyContent: 'center',
     marginRight: 10,
   },
   customLimitInput: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
   },
   customLimitSaveBtn: {
-    width: 64,
     height: 44,
-    borderRadius: 12,
+    borderRadius: 10,
+    paddingHorizontal: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
   customLimitSaveText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
   },
+  limitChips: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  limitChip: {
+    flex: 1,
+    height: 38,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 4,
+  },
+  limitChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
   limitBarContainer: {
-    marginTop: 8,
+    marginTop: 6,
   },
   limitBarLabelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   limitBarLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '600',
   },
   limitTrack: {
-    height: 6,
-    borderRadius: 3,
-    width: '100%',
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
   },
   limitProgress: {
     height: '100%',
-    borderRadius: 3,
+    borderRadius: 4,
   },
   sectionTitle: {
     fontSize: 16,
@@ -514,7 +532,7 @@ const styles = StyleSheet.create({
   },
   cardTxName: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: 2,
   },
   cardTxDate: {
@@ -526,8 +544,8 @@ const styles = StyleSheet.create({
   },
   emptyCardTxsText: {
     fontSize: 12,
-    fontStyle: 'italic',
     textAlign: 'center',
-    paddingVertical: 12,
+    paddingVertical: 16,
+    fontStyle: 'italic',
   },
 });

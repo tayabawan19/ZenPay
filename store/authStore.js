@@ -26,7 +26,8 @@ export const useAuthStore = create((set, get) => ({
           name: profileData.name,
           email: profileData.email,
           phone: profileData.phone,
-          balance: profileData.balance
+          balance: profileData.balance,
+          virtualCard: profileData.virtualCard
         })
       });
     } catch (e) {
@@ -257,7 +258,7 @@ export const useAuthStore = create((set, get) => ({
           cvv: '123',
           limit: 50000,
           spent: 0,
-          isActive: true,
+          isFrozen: false,
           onlinePayments: true,
         }
       };
@@ -292,16 +293,21 @@ export const useAuthStore = create((set, get) => ({
    * Start user listener for profile syncing
    */
   startUserListener: (uid) => {
-    const existingUnsub = get().unsubProfileListener;
+    const existingUnsub = get().unsubscribeUser || get().unsubProfileListener;
     if (existingUnsub) {
       existingUnsub();
     }
 
     const userDocRef = doc(db, 'users', uid);
-    const unsubProfile = onSnapshot(userDocRef, (docSnap) => {
+    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        set({ profile: data, isLoading: false });
+        set({ 
+          user: { ...get().user, balance: data.balance },
+          balance: data.balance,
+          profile: data, 
+          isLoading: false 
+        });
         AsyncStorage.setItem(`zenpay_profile_${uid}`, JSON.stringify(data)).catch(console.error);
         // Sync profile to backend
         get().syncProfileWithBackend(data);
@@ -309,7 +315,12 @@ export const useAuthStore = create((set, get) => ({
         AsyncStorage.getItem(`zenpay_profile_${uid}`).then((localData) => {
           if (localData) {
             const parsed = JSON.parse(localData);
-            set({ profile: parsed, isLoading: false });
+            set({ 
+              profile: parsed, 
+              user: { ...get().user, balance: parsed.balance },
+              balance: parsed.balance,
+              isLoading: false 
+            });
             // Sync with backend
             get().syncProfileWithBackend(parsed);
             // Fetch latest balance from backend
@@ -327,7 +338,12 @@ export const useAuthStore = create((set, get) => ({
         const localData = await AsyncStorage.getItem(`zenpay_profile_${uid}`);
         if (localData) {
           const parsed = JSON.parse(localData);
-          set({ profile: parsed, isLoading: false });
+          set({ 
+            profile: parsed, 
+            user: { ...get().user, balance: parsed.balance },
+            balance: parsed.balance,
+            isLoading: false 
+          });
           // Sync with backend
           get().syncProfileWithBackend(parsed);
           // Fetch latest balance from backend
@@ -340,8 +356,11 @@ export const useAuthStore = create((set, get) => ({
       set({ error: err.message, isLoading: false });
     });
 
-    set({ unsubProfileListener: unsubProfile });
-    return unsubProfile;
+    set({ 
+      unsubProfileListener: unsubscribe,
+      unsubscribeUser: unsubscribe 
+    });
+    return unsubscribe;
   },
 
   /**
@@ -353,12 +372,21 @@ export const useAuthStore = create((set, get) => ({
       // Clear real-time transaction query listener
       useTransactionStore.getState().stopTransactionListener();
 
+      get().unsubscribeUser?.();
+
       const existingUnsub = get().unsubProfileListener;
       if (existingUnsub) {
         existingUnsub();
       }
       await logoutUser();
-      set({ user: null, profile: null, unsubProfileListener: null, isLoading: false });
+      set({ 
+        user: null, 
+        profile: null, 
+        balance: 0,
+        unsubProfileListener: null, 
+        unsubscribeUser: null,
+        isLoading: false 
+      });
     } catch (error) {
       set({ error: error.message, isLoading: false });
       throw error;
@@ -372,21 +400,22 @@ export const useAuthStore = create((set, get) => ({
     const { profile } = get();
     if (!profile) return;
     const userDocRef = doc(db, 'users', profile.uid);
-    const updatedStatus = !profile.virtualCard.isActive;
+    const updatedStatus = !profile.virtualCard.isFrozen;
 
     const updatedProfile = {
       ...profile,
       virtualCard: {
         ...profile.virtualCard,
-        isActive: updatedStatus
+        isFrozen: updatedStatus
       }
     };
     set({ profile: updatedProfile });
     await AsyncStorage.setItem(`zenpay_profile_${profile.uid}`, JSON.stringify(updatedProfile)).catch(console.error);
+    get().syncProfileWithBackend(updatedProfile);
 
     try {
       await updateDoc(userDocRef, {
-        'virtualCard.isActive': updatedStatus
+        'virtualCard.isFrozen': updatedStatus
       });
     } catch (error) {
       console.warn("Toggle Card Freeze Firestore Error (saved locally): ", error.message);
@@ -410,6 +439,7 @@ export const useAuthStore = create((set, get) => ({
     };
     set({ profile: updatedProfile });
     await AsyncStorage.setItem(`zenpay_profile_${profile.uid}`, JSON.stringify(updatedProfile)).catch(console.error);
+    get().syncProfileWithBackend(updatedProfile);
 
     try {
       await updateDoc(userDocRef, {
@@ -438,6 +468,7 @@ export const useAuthStore = create((set, get) => ({
     };
     set({ profile: updatedProfile });
     await AsyncStorage.setItem(`zenpay_profile_${profile.uid}`, JSON.stringify(updatedProfile)).catch(console.error);
+    get().syncProfileWithBackend(updatedProfile);
 
     try {
       await updateDoc(userDocRef, {

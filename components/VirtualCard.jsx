@@ -12,6 +12,7 @@ export const VirtualCard = ({ cardDetails, cardholderName, isFrozen }) => {
   const rotateValue = useRef(new Animated.Value(0)).current;
 
   const handleCardPress = () => {
+    if (isFrozen) return;
     const toValue = flipped ? 0 : 180;
     setFlipped(!flipped);
     Animated.timing(rotateValue, {

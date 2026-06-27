@@ -5,6 +5,7 @@ import { ActivityIndicator, View, StyleSheet, useColorScheme, Text, StatusBar } 
 import { useAuth } from '../hooks/useAuth';
 import { initializeStripe, STRIPE_PUBLISHABLE_KEY } from '../services/stripe';
 import { colors, darkColors } from '../constants/colors';
+import * as Notifications from 'expo-notifications';
 
 export default function RootLayout() {
   const systemTheme = useColorScheme();
@@ -14,10 +15,20 @@ export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
 
-  // Initialize Stripe and listen to Firebase auth state shifts on mount
+  // Initialize Stripe, listen to Firebase auth shifts and request notification permissions on mount
   useEffect(() => {
     initializeStripe();
     const unsubscribe = initAuth();
+
+    const requestPermissions = async () => {
+      try {
+        await Notifications.requestPermissionsAsync();
+      } catch (err) {
+        console.warn("Could not request notification permissions:", err);
+      }
+    };
+    requestPermissions();
+
     return () => {
       if (unsubscribe) unsubscribe();
     };

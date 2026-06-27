@@ -28,75 +28,185 @@ export default function AnalyticsScreen() {
 
   const [period, setPeriod] = useState('week'); // 'week' | 'month' | 'year'
 
-  // Mock data for periods in case transaction history is empty
-  const chartData = {
-    week: [
-      { x: 'Mon', y: 1200 },
-      { x: 'Tue', y: 2500 },
-      { x: 'Wed', y: 800 },
-      { x: 'Thu', y: 3500 },
-      { x: 'Fri', y: 1900 },
-      { x: 'Sat', y: 5000 },
-      { x: 'Sun', y: 1500 }
-    ],
-    month: [
-      { x: 'Week 1', y: 12000 },
-      { x: 'Week 2', y: 8500 },
-      { x: 'Week 3', y: 15000 },
-      { x: 'Week 4', y: 6400 }
-    ],
-    year: [
-      { x: 'Jan-Mar', y: 35000 },
-      { x: 'Apr-Jun', y: 48000 },
-      { x: 'Jul-Sep', y: 28000 },
-      { x: 'Oct-Dec', y: 55000 }
-    ]
+  // Filter user's successful transactions
+  const userTx = transactions.filter(tx => tx.status === 'success');
+  const now = new Date();
+
+  // 1. Calculate overall metrics requested
+  const totalSpent = userTx
+    .filter(tx => tx.senderId === profile?.uid && tx.category !== 'topup')
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const totalReceived = userTx
+    .filter(tx => tx.receiverId === profile?.uid || tx.category === 'topup')
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  // spendingByCategory: group by category field (overall)
+  const spendingByCategory = {};
+  userTx
+    .filter(tx => tx.senderId === profile?.uid && tx.category !== 'topup')
+    .forEach(tx => {
+      const cat = tx.category || 'other';
+      spendingByCategory[cat] = (spendingByCategory[cat] || 0) + tx.amount;
+    });
+
+  // weeklyData: group by day for last 7 days
+  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const weeklyData = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(now.getDate() - i);
+    weeklyData.push({
+      day: daysOfWeek[d.getDay()],
+      dateStr: d.toDateString(),
+      amount: 0
+    });
+  }
+  userTx
+    .filter(tx => tx.senderId === profile?.uid && tx.category !== 'topup')
+    .forEach(tx => {
+      const txDate = tx.timestamp?.toDate ? tx.timestamp.toDate() : (tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000) : new Date(tx.timestamp));
+      const found = weeklyData.find(w => w.dateStr === txDate.toDateString());
+      if (found) {
+        found.amount += tx.amount;
+      }
+    });
+
+  // monthlyData: group by month for last 6 months
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthlyData = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date();
+    d.setMonth(now.getMonth() - i);
+    monthlyData.push({
+      month: months[d.getMonth()],
+      year: d.getFullYear(),
+      amount: 0
+    });
+  }
+  userTx
+    .filter(tx => tx.senderId === profile?.uid && tx.category !== 'topup')
+    .forEach(tx => {
+      const txDate = tx.timestamp?.toDate ? tx.timestamp.toDate() : (tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000) : new Date(tx.timestamp));
+      const txMonth = months[txDate.getMonth()];
+      const txYear = txDate.getFullYear();
+      const found = monthlyData.find(m => m.month === txMonth && m.year === txYear);
+      if (found) {
+        found.amount += tx.amount;
+      }
+    });
+
+  // 2. Filter transactions based on selected period
+  const getPeriodFilteredTx = () => {
+    return userTx.filter(tx => {
+      const txDate = tx.timestamp?.toDate ? tx.timestamp.toDate() : (tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000) : new Date(tx.timestamp));
+      if (period === 'week') {
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(now.getDate() - 7);
+        return txDate >= oneWeekAgo;
+      } else if (period === 'month') {
+        const oneMonthAgo = new Date();
+        oneMonthAgo.setDate(now.getDate() - 30);
+        return txDate >= oneMonthAgo;
+      } else { // 'year'
+        const oneYearAgo = new Date();
+        oneYearAgo.setDate(now.getDate() - 365);
+        return txDate >= oneYearAgo;
+      }
+    });
   };
 
-  const pieData = {
-    week: [
-      { x: 'Food', y: 35, color: theme.warning, icon: 'fast-food' },
-      { x: 'Shopping', y: 25, color: theme.primary, icon: 'cart' },
-      { x: 'Transport', y: 20, color: '#3B82F6', icon: 'bus' },
-      { x: 'Bills', y: 15, color: theme.danger, icon: 'receipt' },
-      { x: 'Other', y: 5, color: theme.success, icon: 'grid' }
-    ],
-    month: [
-      { x: 'Food', y: 30, color: theme.warning, icon: 'fast-food' },
-      { x: 'Shopping', y: 30, color: theme.primary, icon: 'cart' },
-      { x: 'Transport', y: 15, color: '#3B82F6', icon: 'bus' },
-      { x: 'Bills', y: 20, color: theme.danger, icon: 'receipt' },
-      { x: 'Other', y: 5, color: theme.success, icon: 'grid' }
-    ],
-    year: [
-      { x: 'Food', y: 25, color: theme.warning, icon: 'fast-food' },
-      { x: 'Shopping', y: 35, color: theme.primary, icon: 'cart' },
-      { x: 'Transport', y: 12, color: '#3B82F6', icon: 'bus' },
-      { x: 'Bills', y: 22, color: theme.danger, icon: 'receipt' },
-      { x: 'Other', y: 6, color: theme.success, icon: 'grid' }
-    ]
+  const periodTx = getPeriodFilteredTx();
+  const periodDebits = periodTx.filter(tx => tx.senderId === profile?.uid && tx.category !== 'topup');
+
+  // Total spent in this period
+  const periodTotalSpent = periodDebits.reduce((sum, tx) => sum + tx.amount, 0);
+
+  // Spending by Category in this period (Pie/Breakdown)
+  const categoryTotals = {};
+  periodDebits.forEach(tx => {
+    const cat = tx.category || 'other';
+    const formattedCat = cat.charAt(0).toUpperCase() + cat.slice(1);
+    categoryTotals[formattedCat] = (categoryTotals[formattedCat] || 0) + tx.amount;
+  });
+
+  const categoryColors = {
+    Food: theme.warning || '#F59E0B',
+    Shopping: theme.primary || '#10B981',
+    Transport: '#3B82F6',
+    Bills: theme.danger || '#EF4444',
+    Other: theme.success || '#10B981',
+    Transfer: '#8B5CF6',
   };
 
-  const totalSpent = {
-    week: 16400,
-    month: 41900,
-    year: 166000
+  const categoryIcons = {
+    Food: 'fast-food',
+    Shopping: 'cart',
+    Transport: 'bus',
+    Bills: 'receipt',
+    Other: 'grid',
+    Transfer: 'paper-plane',
   };
+
+  let periodPieData = Object.keys(categoryTotals).map(cat => {
+    const val = categoryTotals[cat];
+    const percentage = periodTotalSpent > 0 ? Math.round((val / periodTotalSpent) * 100) : 0;
+    return {
+      x: cat,
+      y: percentage,
+      color: categoryColors[cat] || '#6B7280',
+      icon: categoryIcons[cat] || 'grid',
+      amount: val
+    };
+  }).filter(item => item.y > 0);
+
+  if (periodPieData.length === 0) {
+    periodPieData = [
+      { x: 'No Data', y: 100, color: '#6B7280', icon: 'alert-circle', amount: 0 }
+    ];
+  }
+
+  // Line Chart spending trend
+  const getLineChartData = () => {
+    if (period === 'week') {
+      return weeklyData.map(d => ({ x: d.day, y: d.amount }));
+    } else if (period === 'month') {
+      // Group into 4 weeks of the last 30 days
+      const weeks = [
+        { x: 'Week 1', y: 0, minDays: 0, maxDays: 7 },
+        { x: 'Week 2', y: 0, minDays: 8, maxDays: 14 },
+        { x: 'Week 3', y: 0, minDays: 15, maxDays: 21 },
+        { x: 'Week 4', y: 0, minDays: 22, maxDays: 30 }
+      ];
+
+      periodDebits.forEach(tx => {
+        const txDate = tx.timestamp?.toDate ? tx.timestamp.toDate() : (tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000) : new Date(tx.timestamp));
+        const diffTime = Math.abs(now - txDate);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        const week = weeks.find(w => diffDays >= w.minDays && diffDays <= w.maxDays);
+        if (week) {
+          week.y += tx.amount;
+        }
+      });
+
+      return weeks.map(w => ({ x: w.x, y: w.y }));
+    } else { // 'year'
+      return monthlyData.map(m => ({ x: m.month, y: m.amount }));
+    }
+  };
+
+  const periodChartData = getLineChartData();
 
   const insights = {
-    week: "You spent 12% less on transport this week compared to last week.",
-    month: "Your shopping expense rose by 20% due to mid-season sales.",
-    year: "Bills made up 22% of your annual expenses. Consider checking recurring subscriptions."
+    week: periodTotalSpent > 0 ? "You spent mostly on " + (periodPieData[0]?.x || 'other') + " this week." : "No transactions recorded yet this week.",
+    month: periodTotalSpent > 0 ? "Your largest spending category this month is " + (periodPieData[0]?.x || 'other') + "." : "No transactions recorded yet this month.",
+    year: totalSpent > 0 ? "Your total yearly spending is " + formatPKR(totalSpent) + "." : "No annual spending data to report."
   };
 
-  const currentPieData = pieData[period];
-  const currentChartData = chartData[period];
-  const currentTotalSpent = totalSpent[period];
   const currentInsight = insights[period];
 
-  // Calculate actual user spends if transactions exist
   const getTopSpends = () => {
-    // Return largest debit transactions
     return transactions
       .filter(tx => tx.senderId === profile?.uid && tx.status === 'success')
       .sort((a, b) => b.amount - a.amount)
@@ -134,10 +244,10 @@ export default function AnalyticsScreen() {
         {/* Total Spent Summary Card */}
         <View style={[styles.spentCard, { backgroundColor: theme.backgroundCard, borderColor: theme.border }]}>
           <Text style={styles.spentLabel}>Total Spending</Text>
-          <Text style={styles.spentAmount}>{formatPKR(currentTotalSpent)}</Text>
+          <Text style={styles.spentAmount}>{formatPKR(periodTotalSpent)}</Text>
           <View style={styles.spentFooter}>
             <Ionicons name="trending-down" size={16} color={theme.success} />
-            <Text style={styles.spentFooterText}>8% less than previous period</Text>
+            <Text style={styles.spentFooterText}>Wired to real transaction data</Text>
           </View>
         </View>
 
@@ -155,18 +265,18 @@ export default function AnalyticsScreen() {
                 data: { stroke: theme.primary, strokeWidth: 3 },
                 grid: { stroke: 'transparent' }
               }}
-              data={currentChartData}
+              data={periodChartData}
               interpolation="natural"
             />
           </VictoryChart>
         </View>
 
-        {/* Donut Chart and Breakdown */}
+        {/* Donut Chart */}
         <View style={[styles.chartContainer, { backgroundColor: theme.backgroundCard, borderColor: theme.border, alignItems: 'center' }]}>
           <Text style={[styles.chartTitle, { color: theme.textPrimary, alignSelf: 'flex-start' }]}>Category Shares</Text>
           <VictoryPie
-            data={currentPieData.map(item => ({ x: item.x, y: item.y }))}
-            colorScale={currentPieData.map(item => item.color)}
+            data={periodPieData.map(item => ({ x: item.x, y: item.y }))}
+            colorScale={periodPieData.map(item => item.color)}
             width={width - 100}
             height={200}
             innerRadius={60}
@@ -180,11 +290,11 @@ export default function AnalyticsScreen() {
 
         {/* Category breakdown listing */}
         <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginVertical: 12 }]}>Categories Breakdown</Text>
-        {currentPieData.map((item) => (
+        {periodPieData.map((item) => (
           <StatCard
             key={item.x}
             title={item.x}
-            amount={(item.y / 100) * currentTotalSpent}
+            amount={item.amount || 0}
             percentage={item.y}
             color={item.color}
             iconName={item.icon}

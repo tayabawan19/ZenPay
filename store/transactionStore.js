@@ -7,6 +7,7 @@ import {
 } from '../services/transactions';
 import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import * as Notifications from 'expo-notifications';
 
 export const useTransactionStore = create((set, get) => ({
   transactions: [],     // Holds user transactions list
@@ -51,6 +52,9 @@ export const useTransactionStore = create((set, get) => ({
 
     if (!uid) return;
 
+    // Track transaction IDs we've already seen to prevent notifications on load
+    const seenTxIds = new Set(get().transactions.map(t => t.id));
+
     // Detect if firebase auth/database is in mock mode (using placeholder config keys)
     const isMock = db.app.options.apiKey?.includes('Placeholder') || !db.app.options.apiKey;
 
@@ -60,6 +64,22 @@ export const useTransactionStore = create((set, get) => ({
       const interval = setInterval(async () => {
         try {
           const history = await getTransactionsHistory();
+          
+          // Trigger local notification for newly arrived received money transfers
+          history.forEach(tx => {
+            if (tx.receiverId === uid && tx.type === 'credit' && !seenTxIds.has(tx.id)) {
+              Notifications.scheduleNotificationAsync({
+                content: {
+                  title: '💸 Money Received!',
+                  body: `PKR ${tx.amount.toLocaleString()} received from ${tx.senderName || 'ZenPay User'}`,
+                  data: { transactionId: tx.id },
+                },
+                trigger: null,
+              }).catch(console.error);
+            }
+            seenTxIds.add(tx.id);
+          });
+
           set({ transactions: history });
 
           // Sync and fetch updated profile balance dynamically
@@ -125,7 +145,21 @@ export const useTransactionStore = create((set, get) => ({
       const unsubReceiver = onSnapshot(qReceiver, (snapshot) => {
         receiverTx = [];
         snapshot.forEach(doc => {
-          receiverTx.push({ id: doc.id, ...doc.data() });
+          const tx = { id: doc.id, ...doc.data() };
+          receiverTx.push(tx);
+
+          // Trigger local notification for newly arrived received money transfers
+          if (tx.receiverId === uid && tx.type === 'credit' && !seenTxIds.has(tx.id)) {
+            Notifications.scheduleNotificationAsync({
+              content: {
+                title: '💸 Money Received!',
+                body: `PKR ${tx.amount.toLocaleString()} received from ${tx.senderName || 'ZenPay User'}`,
+                data: { transactionId: tx.id },
+              },
+              trigger: null,
+            }).catch(console.error);
+          }
+          seenTxIds.add(tx.id);
         });
         mergeAndSetTx();
       }, (err) => {

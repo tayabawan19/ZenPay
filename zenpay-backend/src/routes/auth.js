@@ -122,7 +122,7 @@ router.post(
  * Body: { uid, name, email, phone, balance }
  */
 router.post('/sync-profile', async (req, res) => {
-  const { uid, name, email, phone, balance } = req.body;
+  const { uid, name, email, phone, balance, virtualCard } = req.body;
   if (!uid) {
     return res.status(400).json({ success: false, message: 'uid is required.' });
   }
@@ -140,15 +140,15 @@ router.post('/sync-profile', async (req, res) => {
       phone: phone || (docSnap.exists ? docSnap.data().phone : ''),
       balance: currentBalance,
       kycStatus: 'verified',
-      virtualCard: {
+      virtualCard: virtualCard || (docSnap.exists ? docSnap.data().virtualCard : {
         number: '4242 4242 4242 4242',
         expiry: '12/28',
         cvv: '123',
         limit: 50000,
         spent: 0,
-        isActive: true,
+        isFrozen: false,
         onlinePayments: true
-      }
+      })
     };
 
     await userRef.set(profileData);
