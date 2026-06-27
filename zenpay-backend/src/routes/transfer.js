@@ -11,9 +11,46 @@ router.get('/search-users', async (req, res) => {
   const searchQuery = (query || '').toLowerCase().trim();
 
   try {
-    const usersSnap = await db.collection('users').get();
-    const results = [];
+    let usersSnap = await db.collection('users').get();
+    
+    // Auto-seed mock users if database is empty/newly initialized (1 or fewer profiles exist)
+    const docsArray = [];
+    usersSnap.forEach(doc => docsArray.push({ id: doc.id, ...doc.data() }));
 
+    if (docsArray.length <= 1) {
+      console.log("Database has 1 or fewer users. Seeding default mock contacts for test mode.");
+      const seedUsers = [
+        { uid: 'mock-user-1', name: 'Tayyab Tanveer', email: 'tayyab@zenpay.com', phone: '+923001234567', balance: 12000 },
+        { uid: 'mock-user-2', name: 'Ayesha Khan', email: 'ayesha@zenpay.com', phone: '+923129876543', balance: 8000 },
+        { uid: 'mock-user-3', name: 'Muhammad Ali', email: 'ali@zenpay.com', phone: '+923335551234', balance: 15000 },
+        { uid: 'mock-user-4', name: 'Fatima Zahra', email: 'fatima@zenpay.com', phone: '+923456789012', balance: 5000 }
+      ];
+
+      for (const u of seedUsers) {
+        if (u.uid !== currentUserId) {
+          await db.collection('users').doc(u.uid).set({
+            uid: u.uid,
+            name: u.name,
+            email: u.email,
+            phone: u.phone,
+            balance: u.balance,
+            kycStatus: 'verified',
+            virtualCard: {
+              number: '4242424242424242',
+              cvv: '123',
+              expiry: '12/29',
+              limit: 50000,
+              spent: 0,
+              isFrozen: false
+            }
+          });
+        }
+      }
+      // Re-query database after seeding
+      usersSnap = await db.collection('users').get();
+    }
+
+    const results = [];
     usersSnap.forEach((doc) => {
       const data = doc.data();
       const uid = doc.id;
