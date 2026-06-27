@@ -782,10 +782,6 @@ const styles = StyleSheet.create({
   },
   searchBarFocused: {
     borderColor: 'rgba(124, 111, 255, 0.4)',
-    shadowColor: '#7C6FFF',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
   },
   searchInput: {
     flex: 1,

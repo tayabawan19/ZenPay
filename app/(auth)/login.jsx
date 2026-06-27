@@ -522,10 +522,6 @@ const styles = StyleSheet.create({
   },
   inputWrapperFocused: {
     borderColor: 'rgba(124, 111, 255, 0.5)',
-    shadowColor: '#7C6FFF',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
   },
   inputIcon: {
     marginRight: 12,
