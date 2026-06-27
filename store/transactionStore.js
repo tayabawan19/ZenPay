@@ -61,6 +61,13 @@ export const useTransactionStore = create((set, get) => ({
         try {
           const history = await getTransactionsHistory();
           set({ transactions: history });
+
+          // Sync and fetch updated profile balance dynamically
+          const { useAuthStore } = require('./authStore');
+          const authStore = useAuthStore.getState();
+          if (authStore.user) {
+            authStore.fetchProfile(authStore.user.uid);
+          }
         } catch (e) {
           console.error(e);
         }

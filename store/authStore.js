@@ -4,6 +4,7 @@ import { auth, db, onAuthStateChanged, signOut } from '../services/firebase';
 import { doc, onSnapshot, updateDoc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { useTransactionStore } from './transactionStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_URL } from '../constants/api';
 
 export const useAuthStore = create((set, get) => ({
   user: null,                   // Firebase Auth User object
@@ -13,6 +14,39 @@ export const useAuthStore = create((set, get) => ({
   isBiometricsEnabled: false,    // Bio-authentication setting state
   isNotificationsEnabled: true, // App notification setting state
   unsubProfileListener: null,   // Holds the onSnapshot cleanup function
+
+  syncProfileWithBackend: async (profileData) => {
+    if (!profileData || !profileData.uid) return;
+    try {
+      await fetch(`${API_URL}/api/auth/sync-profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: profileData.uid,
+          name: profileData.name,
+          email: profileData.email,
+          phone: profileData.phone,
+          balance: profileData.balance
+        })
+      });
+    } catch (e) {
+      console.warn("Failed to sync profile to backend database:", e.message);
+    }
+  },
+
+  fetchProfile: async (uid) => {
+    if (!uid) return;
+    try {
+      const res = await fetch(`${API_URL}/api/auth/profile?uid=${uid}`);
+      const data = await res.json();
+      if (data.success && data.profile) {
+        set({ profile: data.profile });
+        await AsyncStorage.setItem(`zenpay_profile_${uid}`, JSON.stringify(data.profile));
+      }
+    } catch (e) {
+      console.warn("Failed to fetch profile from backend database:", e.message);
+    }
+  },
 
   setError: (error) => set({ error }),
   setLoading: (isLoading) => set({ isLoading }),
@@ -118,6 +152,9 @@ export const useAuthStore = create((set, get) => ({
       
       // Store user data in Zustand authStore
       set({ user, profile: profileData });
+      
+      // Sync profile to backend
+      get().syncProfileWithBackend(profileData);
       
       // Start real-time profile listener
       get().startUserListener(user.uid);
@@ -229,6 +266,8 @@ export const useAuthStore = create((set, get) => ({
           ...userData,
           createdAt: new Date().toISOString()
         }));
+        // Sync profile to backend
+        await get().syncProfileWithBackend(userData);
       } catch (fsErr) {
         console.warn("Firestore user doc create failed, using AsyncStorage fallback: ", fsErr.message);
         await AsyncStorage.setItem(`zenpay_profile_${uid}`, JSON.stringify({
@@ -259,6 +298,8 @@ export const useAuthStore = create((set, get) => ({
         const data = docSnap.data();
         set({ profile: data, isLoading: false });
         AsyncStorage.setItem(`zenpay_profile_${uid}`, JSON.stringify(data)).catch(console.error);
+        // Sync profile to backend
+        get().syncProfileWithBackend(data);
       } else {
         AsyncStorage.getItem(`zenpay_profile_${uid}`).then((localData) => {
           if (localData) {
