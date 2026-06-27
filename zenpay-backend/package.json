@@ -1,0 +1,21 @@
+{
+  "name": "zenpay-backend",
+  "version": "1.0.0",
+  "description": "OTP verification backend for ZenPay using Express, Firebase, and Brevo SMTP",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "firebase-admin": "^12.7.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  },
+  "private": true
+}
