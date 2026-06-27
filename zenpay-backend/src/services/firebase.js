@@ -49,12 +49,37 @@ class MockDoc {
   }
 
   async set(data) {
-    this.dataStore.set(this.id, { ...data });
+    const resolvedData = {};
+    for (const key in data) {
+      const val = data[key];
+      if (val && typeof val === 'object' && (val._methodName === 'FieldValue.increment' || val.operand !== undefined)) {
+        const operand = val._val !== undefined ? val._val : (val.operand !== undefined ? val.operand : 0);
+        resolvedData[key] = operand;
+      } else if (val && typeof val === 'object' && val._methodName === 'FieldValue.serverTimestamp') {
+        resolvedData[key] = new Date();
+      } else {
+        resolvedData[key] = val;
+      }
+    }
+    this.dataStore.set(this.id, resolvedData);
   }
 
   async update(data) {
     const current = this.dataStore.get(this.id) || {};
-    this.dataStore.set(this.id, { ...current, ...data });
+    const resolvedData = {};
+    for (const key in data) {
+      const val = data[key];
+      if (val && typeof val === 'object' && (val._methodName === 'FieldValue.increment' || val.operand !== undefined)) {
+        const currentVal = current[key] || 0;
+        const operand = val._val !== undefined ? val._val : (val.operand !== undefined ? val.operand : 0);
+        resolvedData[key] = currentVal + operand;
+      } else if (val && typeof val === 'object' && val._methodName === 'FieldValue.serverTimestamp') {
+        resolvedData[key] = new Date();
+      } else {
+        resolvedData[key] = val;
+      }
+    }
+    this.dataStore.set(this.id, { ...current, ...resolvedData });
   }
 }
 
@@ -80,6 +105,27 @@ class MockFirestore {
   collection(name) {
     return new MockCollection(name, this.database);
   }
+
+  batch() {
+    const operations = [];
+    return {
+      update(docRef, data) {
+        operations.push({ type: 'update', ref: docRef, data });
+      },
+      set(docRef, data) {
+        operations.push({ type: 'set', ref: docRef, data });
+      },
+      async commit() {
+        for (const op of operations) {
+          if (op.type === 'update') {
+            await op.ref.update(op.data);
+          } else if (op.type === 'set') {
+            await op.ref.set(op.data);
+          }
+        }
+      }
+    };
+  }
 }
 
 class SafeFirestore {
@@ -93,13 +139,15 @@ class SafeFirestore {
     const self = this;
     return {
       doc(id) {
+        const realDoc = self.realDb.collection(name).doc(id);
         return {
+          _realDoc: realDoc,
           async get() {
             if (self.useMock) {
               return self.mockDb.collection(name).doc(id).get();
             }
             try {
-              return await self.realDb.collection(name).doc(id).get();
+              return await realDoc.get();
             } catch (err) {
               if (err.message && (
                 err.message.includes('PERMISSION_DENIED') || 
@@ -119,7 +167,7 @@ class SafeFirestore {
               return self.mockDb.collection(name).doc(id).set(data);
             }
             try {
-              return await self.realDb.collection(name).doc(id).set(data);
+              return await realDoc.set(data);
             } catch (err) {
               if (err.message && (
                 err.message.includes('PERMISSION_DENIED') || 
@@ -139,7 +187,7 @@ class SafeFirestore {
               return self.mockDb.collection(name).doc(id).update(data);
             }
             try {
-              return await self.realDb.collection(name).doc(id).update(data);
+              return await realDoc.update(data);
             } catch (err) {
               if (err.message && (
                 err.message.includes('PERMISSION_DENIED') || 
@@ -157,6 +205,25 @@ class SafeFirestore {
         };
       }
     };
+  }
+
+  batch() {
+    if (this.useMock) {
+      return this.mockDb.batch();
+    } else {
+      const realBatch = this.realDb.batch();
+      return {
+        update(docRef, data) {
+          realBatch.update(docRef._realDoc, data);
+        },
+        set(docRef, data) {
+          realBatch.set(docRef._realDoc, data);
+        },
+        async commit() {
+          await realBatch.commit();
+        }
+      };
+    }
   }
 }
 

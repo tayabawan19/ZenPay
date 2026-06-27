@@ -1,12 +1,12 @@
 import { initStripe } from '@stripe/stripe-react-native';
 
 // Stripe test publishable key (Replace with your actual Stripe publishable key to connect to live sandbox)
-const STRIPE_KEY = 'pk_test_XXXXXXXXXXXXXXXX'; 
+export const STRIPE_PUBLISHABLE_KEY = 'pk_test_YOUR_KEY_HERE'; 
 
 export const initializeStripe = () => {
   try {
     initStripe({
-      publishableKey: STRIPE_KEY,
+      publishableKey: STRIPE_PUBLISHABLE_KEY,
       merchantIdentifier: 'com.zenpay.app',
     });
   } catch (error) {

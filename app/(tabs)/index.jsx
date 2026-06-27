@@ -21,7 +21,7 @@ import { colors, darkColors } from '../../constants/colors';
 import BalanceCard from '../../components/BalanceCard';
 import QuickSendContact from '../../components/QuickSendContact';
 import TransactionItem from '../../components/TransactionItem';
-import { presentMockPaymentSheet } from '../../services/stripe';
+import TopUpSheet from '../../components/TopUpSheet';
 
 export default function HomeScreen() {
   const systemTheme = useColorScheme();
@@ -44,10 +44,6 @@ export default function HomeScreen() {
   const [receiveModalVisible, setReceiveModalVisible] = useState(false);
   const [topUpModalVisible, setTopUpModalVisible] = useState(false);
 
-  // Top up input states
-  const [topUpAmount, setTopUpAmount] = useState('');
-  const [isProcessingTopUp, setIsProcessingTopUp] = useState(false);
-
   // Load transactions and contacts on mount
   useEffect(() => {
     refreshData();
@@ -68,34 +64,6 @@ export default function HomeScreen() {
     if (hrs < 12) return 'Good morning';
     if (hrs < 17) return 'Good afternoon';
     return 'Good evening';
-  };
-
-  // Handle mock Stripe top-up execution
-  const handleTopUpSubmit = async () => {
-    const amountNum = parseFloat(topUpAmount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter a valid amount to load.');
-      return;
-    }
-
-    setIsProcessingTopUp(true);
-    try {
-      // Simulate Stripe loading/test cards sequence
-      const stripeRes = await presentMockPaymentSheet(amountNum);
-      if (stripeRes.success) {
-        // Execute atomic Firestore balance addition and tx document log
-        await topUp(amountNum);
-        setTopUpModalVisible(false);
-        setTopUpAmount('');
-        Alert.alert('Top Up Successful', `PKR ${amountNum.toLocaleString('en-US', { minimumFractionDigits: 2 })} has been added to your balance.`);
-      } else {
-        Alert.alert('Payment Cancelled', stripeRes.error || 'Payment sheet was closed.');
-      }
-    } catch (err) {
-      Alert.alert('Payment Error', err.message || 'An error occurred during Stripe transaction.');
-    } finally {
-      setIsProcessingTopUp(false);
-    }
   };
 
   const recentTransactions = transactions.slice(0, 5);
@@ -265,57 +233,11 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* Stripe Top Up Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
+      {/* Stripe Top Up Bottom Sheet */}
+      <TopUpSheet
         visible={topUpModalVisible}
-        onRequestClose={() => { if (!isProcessingTopUp) setTopUpModalVisible(false); }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.topUpModalContent, { backgroundColor: theme.backgroundCard, borderRadius: 24, padding: 24 }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.textPrimary, fontSize: 18, fontWeight: 700 }]}>Top Up Balance</Text>
-              <TouchableOpacity
-                onPress={() => setTopUpModalVisible(false)}
-                style={styles.closeButton}
-                disabled={isProcessingTopUp}
-              >
-                <Ionicons name="close" size={24} color={theme.textPrimary} />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={[styles.inputLabel, { color: theme.textPrimary, fontSize: 14, fontWeight: 600, marginTop: 12 }]}>
-              Enter Amount (PKR)
-            </Text>
-            <View style={[styles.amountInputWrapper, { borderColor: theme.border, borderWidth: 1.5, borderRadius: 14, height: 56, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center' }]}>
-              <Text style={[styles.currencyPrefix, { color: theme.textPrimary, fontSize: 16, fontWeight: 700, marginRight: 10 }]}>PKR</Text>
-              <TextInput
-                style={[styles.amountInput, { flex: 1, fontSize: 16, fontWeight: 600, height: '100%', color: theme.textPrimary }]}
-                placeholder="1,000"
-                placeholderTextColor={theme.textMuted}
-                keyboardType="numeric"
-                value={topUpAmount}
-                onChangeText={setTopUpAmount}
-                editable={!isProcessingTopUp}
-                autoFocus
-              />
-            </View>
-
-            <TouchableOpacity
-              style={[styles.topUpSubmitBtn, { height: 56, borderRadius: 14, backgroundColor: theme.primary, justifyContent: 'center', alignItems: 'center' }]}
-              onPress={handleTopUpSubmit}
-              disabled={isProcessingTopUp || !topUpAmount}
-            >
-              {isProcessingTopUp ? (
-                <ActivityIndicator color={theme.background} size="small" />
-              ) : (
-                <Text style={[styles.topUpSubmitText, { color: theme.background, fontSize: 16, fontWeight: 700 }]}>Proceed with Stripe</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setTopUpModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }

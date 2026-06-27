@@ -3,7 +3,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { ActivityIndicator, View, StyleSheet, useColorScheme, Text, StatusBar } from 'react-native';
 import { useAuth } from '../hooks/useAuth';
-import { initializeStripe } from '../services/stripe';
+import { initializeStripe, STRIPE_PUBLISHABLE_KEY } from '../services/stripe';
 import { colors, darkColors } from '../constants/colors';
 
 export default function RootLayout() {
@@ -58,7 +58,7 @@ export default function RootLayout() {
     <>
       <StatusBar barStyle="light-content" />
       <StripeProvider
-        publishableKey="pk_test_XXXXXXXXXXXXXXXX"
+        publishableKey={STRIPE_PUBLISHABLE_KEY}
         merchantIdentifier="com.zenpay.app"
       >
         <Stack screenOptions={{ headerShown: false }}>
