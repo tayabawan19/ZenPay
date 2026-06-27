@@ -1,3 +1,4 @@
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import React, { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StripeProvider } from '@stripe/stripe-react-native';
@@ -66,7 +67,7 @@ export default function RootLayout() {
   }
 
   return (
-    <>
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <StatusBar barStyle="light-content" />
       <StripeProvider
         publishableKey={STRIPE_PUBLISHABLE_KEY}
@@ -78,7 +79,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" />
         </Stack>
       </StripeProvider>
-    </>
+    </GestureHandlerRootView>
   );
 }
 

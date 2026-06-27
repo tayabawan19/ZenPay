@@ -10,51 +10,153 @@ import {
   limit, 
   runTransaction, 
   serverTimestamp,
-  addDoc
+  addDoc,
+  writeBatch,
+  increment
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '../store/authStore';
 import { API_URL } from '../constants/api';
 
-export const searchUsers = async (query = '', currentUserId = null) => {
-  const uid = currentUserId || auth.currentUser?.uid || '';
+export const fetchAllUsers = async (currentUserId) => {
   try {
     const usersRef = collection(db, 'users');
     const snapshot = await getDocs(usersRef);
-    const results = [];
+    const users = [];
     snapshot.forEach((doc) => {
-      const data = doc.data();
-      if (
-        doc.id !== uid && // exclude self
-        (
-          data.name?.toLowerCase().includes(query.toLowerCase()) ||
-          data.email?.toLowerCase().includes(query.toLowerCase()) ||
-          data.phone?.includes(query)
-        )
-      ) {
-        results.push({
+      if (doc.id !== currentUserId) {
+        const data = doc.data();
+        users.push({
           uid: doc.id,
-          name: data.name,
-          email: data.email,
-          phone: data.phone,
+          name: data.name || 'Unknown',
+          email: data.email || '',
+          phone: data.phone || '',
         });
       }
     });
-    return results;
+    return users;
   } catch (error) {
-    console.error('Search error:', error);
+    console.error('fetchAllUsers error:', error);
     return [];
   }
 };
 
-export const sendMoney = async (senderId, receiverId, amount, note) => {
-  const res = await fetch(`${API_URL}/api/transfer/send`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ senderId, receiverId, amount, note })
-  });
-  return await res.json();
+export const searchUsers = async (query, currentUserId) => {
+  try {
+    const allUsers = await fetchAllUsers(currentUserId);
+    if (!query || query.trim() === '') return allUsers;
+    const q = query.toLowerCase().trim();
+    return allUsers.filter(user =>
+      user.name?.toLowerCase().includes(q) ||
+      user.email?.toLowerCase().includes(q) ||
+      user.phone?.includes(q)
+    );
+  } catch (error) {
+    console.error('searchUsers error:', error);
+    return [];
+  }
+};
+
+export const sendMoney = async ({
+  senderId,
+  receiverId,
+  senderName,
+  receiverName,
+  amount,
+  note
+}) => {
+  try {
+    // Check sender balance
+    const senderRef = doc(db, 'users', senderId);
+    const senderSnap = await getDoc(senderRef);
+    
+    if (!senderSnap.exists()) {
+      return { success: false, message: 'Sender not found' };
+    }
+    
+    const senderData = senderSnap.data();
+    
+    if (senderData.balance < amount) {
+      return { 
+        success: false, 
+        message: 'Insufficient balance' 
+      };
+    }
+
+    // Atomic batch write
+    const batch = writeBatch(db);
+    const receiverRef = doc(db, 'users', receiverId);
+
+    // Deduct from sender
+    batch.update(senderRef, {
+      balance: increment(-amount)
+    });
+
+    // Add to receiver
+    batch.update(receiverRef, {
+      balance: increment(amount)
+    });
+
+    // Create debit transaction for sender
+    const debitRef = doc(collection(db, 'transactions'));
+    batch.set(debitRef, {
+      id: debitRef.id,
+      senderId,
+      receiverId,
+      senderName,
+      receiverName,
+      amount,
+      type: 'debit',
+      category: 'transfer',
+      note: note || 'Money Transfer',
+      status: 'success',
+      timestamp: serverTimestamp(),
+    });
+
+    // Create credit transaction for receiver
+    const creditRef = doc(collection(db, 'transactions'));
+    batch.set(creditRef, {
+      id: creditRef.id,
+      senderId,
+      receiverId,
+      senderName,
+      receiverName,
+      amount,
+      type: 'credit',
+      category: 'transfer',
+      note: note || 'Money Transfer',
+      status: 'success',
+      timestamp: serverTimestamp(),
+    });
+
+    // Save receiver as contact for sender
+    const contactRef = doc(
+      db, 
+      'contacts', senderId, 
+      'contacts', receiverId
+    );
+    batch.set(contactRef, {
+      uid: receiverId,
+      name: receiverName,
+      lastTransfer: serverTimestamp(),
+    }, { merge: true });
+
+    // Commit everything at once
+    await batch.commit();
+
+    return { 
+      success: true, 
+      message: 'Transfer successful' 
+    };
+
+  } catch (error) {
+    console.error('sendMoney error:', error);
+    return { 
+      success: false, 
+      message: 'Transfer failed. Please try again.' 
+    };
+  }
 };
 
 /**
@@ -315,73 +417,35 @@ export const executeTopUp = async (amount) => {
  * @param {number} limitVal 
  * @returns {Promise<Array>}
  */
-export const getTransactionsHistory = async (limitVal = 50) => {
+export const getTransactionsHistory = async (uid) => {
+  const currentUid = uid || auth.currentUser?.uid;
+  if (!currentUid) return [];
   try {
-    const currentUser = auth.currentUser;
-    if (!currentUser) return [];
-
-    const txRef = collection(db, 'transactions');
-    const qSender = query(
-      txRef, 
-      where('senderId', '==', currentUser.uid), 
-      orderBy('timestamp', 'desc'), 
-      limit(limitVal)
+    const q = query(
+      collection(db, 'transactions'),
+      where('senderId', '==', currentUid),
+      orderBy('timestamp', 'desc'),
+      limit(50)
     );
-    const qReceiver = query(
-      txRef, 
-      where('receiverId', '==', currentUser.uid), 
-      orderBy('timestamp', 'desc'), 
-      limit(limitVal)
+    const q2 = query(
+      collection(db, 'transactions'),
+      where('receiverId', '==', currentUid),
+      orderBy('timestamp', 'desc'),
+      limit(50)
     );
-
-    const [senderSnap, receiverSnap] = await Promise.all([
-      getDocs(qSender),
-      getDocs(qReceiver)
+    const [snap1, snap2] = await Promise.all([
+      getDocs(q),
+      getDocs(q2)
     ]);
-
-    const txMap = new Map();
-    
-    senderSnap.forEach((doc) => {
-      txMap.set(doc.id, { id: doc.id, ...doc.data() });
-    });
-    
-    receiverSnap.forEach((doc) => {
-      txMap.set(doc.id, { id: doc.id, ...doc.data() });
-    });
-
-    const txList = Array.from(txMap.values()).sort((a, b) => {
-      const timeA = a.timestamp?.seconds || 0;
-      const timeB = b.timestamp?.seconds || 0;
-      return timeB - timeA;
-    });
-
-    // Merge or save to local transactions
-    const localTxStr = await AsyncStorage.getItem(`zenpay_transactions_${currentUser.uid}`);
-    let localTx = localTxStr ? JSON.parse(localTxStr) : [];
-    
-    const mergedMap = new Map();
-    localTx.forEach(tx => mergedMap.set(tx.id, tx));
-    txList.forEach(tx => mergedMap.set(tx.id, tx));
-
-    const finalTxList = Array.from(mergedMap.values()).sort((a, b) => {
-      const timeA = a.timestamp?.seconds || 0;
-      const timeB = b.timestamp?.seconds || 0;
-      return timeB - timeA;
-    });
-
-    await AsyncStorage.setItem(`zenpay_transactions_${currentUser.uid}`, JSON.stringify(finalTxList.slice(0, limitVal)));
-    return finalTxList.slice(0, limitVal);
+    const txns = [];
+    snap1.forEach(d => txns.push(d.data()));
+    snap2.forEach(d => txns.push(d.data()));
+    txns.sort((a,b) => 
+      (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)
+    );
+    return txns;
   } catch (error) {
-    console.warn("Fetch Transactions Firestore Error, checking AsyncStorage: ", error.message);
-    try {
-      const currentUser = auth.currentUser;
-      if (currentUser) {
-        const localTxStr = await AsyncStorage.getItem(`zenpay_transactions_${currentUser.uid}`);
-        if (localTxStr) return JSON.parse(localTxStr);
-      }
-    } catch (e) {
-      console.error(e);
-    }
+    console.error('getTransactionsHistory error:', error);
     return [];
   }
 };

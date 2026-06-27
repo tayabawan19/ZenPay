@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   StyleSheet, 
   Text, 
@@ -8,26 +8,57 @@ import {
   TouchableOpacity, 
   ActivityIndicator, 
   RefreshControl,
-  useColorScheme 
+  Animated
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
 import { useTransactions } from '../../hooks/useTransactions';
 import TransactionItem from '../../components/TransactionItem';
-import { colors, darkColors } from '../../constants/colors';
+import { colors } from '../../constants/colors';
+import GlobalBackground from '../../components/GlobalBackground';
+
+// Reusable Filter Chip component with tap bounciness
+const FilterChip = ({ label, isActive, onPress }) => {
+  const scale = useRef(new Animated.Value(1.0)).current;
+
+  const handlePress = () => {
+    Animated.sequence([
+      Animated.spring(scale, { toValue: 0.92, friction: 3, tension: 150, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1.0, friction: 5, tension: 120, useNativeDriver: true }),
+    ]).start(() => onPress());
+  };
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <TouchableOpacity
+        onPress={handlePress}
+        activeOpacity={1}
+        style={[
+          styles.chip,
+          isActive ? styles.chipActive : styles.chipInactive
+        ]}
+      >
+        <Text style={[
+          styles.chipText,
+          isActive ? styles.chipTextActive : styles.chipTextInactive
+        ]}>
+          {label.toUpperCase()}
+        </Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
 
 export default function HistoryScreen() {
-  const systemTheme = useColorScheme();
-  const theme = systemTheme === 'dark' ? darkColors : colors;
-
   const { profile } = useAuth();
-  const { transactions, isLoading, fetchTransactions } = useTransactions();
+  const { transactions, fetchTransactions } = useTransactions();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('all'); // 'all' | 'sent' | 'received' | 'failed'
   const [refreshing, setRefreshing] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(15); // Frontend pagination
+  const [visibleCount, setVisibleCount] = useState(15); 
+  const [searchFocused, setSearchFocused] = useState(false);
 
   useEffect(() => {
     fetchTransactions();
@@ -50,7 +81,6 @@ export default function HistoryScreen() {
     const isDebit = tx.senderId === profile?.uid;
     const isCredit = tx.receiverId === profile?.uid;
 
-    // Search query matches names or notes
     const query = searchQuery.toLowerCase().trim();
     const nameMatch = 
       tx.senderName?.toLowerCase().includes(query) || 
@@ -59,15 +89,13 @@ export default function HistoryScreen() {
 
     if (query && !nameMatch) return false;
 
-    // Chip filter matching
     if (activeFilter === 'sent') return isDebit && tx.category !== 'topup';
     if (activeFilter === 'received') return isCredit || tx.category === 'topup';
     if (activeFilter === 'failed') return tx.status === 'failed';
     
-    return true; // 'all'
+    return true; 
   });
 
-  // Paginated subset
   const paginatedTransactions = filteredTransactions.slice(0, visibleCount);
 
   // Group transaction items by date headings
@@ -96,7 +124,7 @@ export default function HistoryScreen() {
       oneWeekAgo.setDate(now.getDate() - 7);
       if (date > oneWeekAgo) return 'This Week';
 
-      return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase();
     };
 
     paginatedTransactions.forEach(tx => {
@@ -115,7 +143,6 @@ export default function HistoryScreen() {
 
   const groupedData = getGroupedTransactions();
 
-  // Convert grouped data back into a flat list format for FlatList with section headers
   const flatListData = [];
   groupedData.forEach(group => {
     flatListData.push({ isHeader: true, title: group.title });
@@ -127,7 +154,7 @@ export default function HistoryScreen() {
   const renderItem = ({ item }) => {
     if (item.isHeader) {
       return (
-        <Text style={[styles.sectionHeaderTitle, { color: theme.textSecondary }]}>
+        <Text style={styles.sectionHeaderTitle}>
           {item.title}
         </Text>
       );
@@ -141,87 +168,80 @@ export default function HistoryScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-      {/* Search Header bar */}
-      <View style={styles.searchHeader}>
-        <Text style={[styles.title, { color: theme.text }]}>History</Text>
-        <View style={[styles.searchBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Ionicons name="search-outline" size={20} color={theme.textSecondary} style={{ marginRight: 8 }} />
-          <TextInput
-            style={[styles.searchInput, { color: theme.text }]}
-            placeholder="Search transactions, notes..."
-            placeholderTextColor={theme.textSecondary}
-            value={searchQuery}
-            onChangeText={(text) => { setSearchQuery(text); setVisibleCount(15); }}
-          />
-          {searchQuery ? (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={18} color={theme.textSecondary} />
-            </TouchableOpacity>
-          ) : null}
+    <GlobalBackground>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        {/* Search Header bar */}
+        <View style={styles.searchHeader}>
+          <Text style={styles.title}>History</Text>
+          
+          <View style={[
+            styles.searchBar,
+            searchFocused && styles.searchBarFocused
+          ]}>
+            <Ionicons name="search-outline" size={20} color="#7C6FFF" style={{ marginRight: 10 }} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search transactions, notes..."
+              placeholderTextColor="rgba(255, 255, 255, 0.3)"
+              value={searchQuery}
+              onChangeText={(text) => { setSearchQuery(text); setVisibleCount(15); }}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+            />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')} activeOpacity={0.7}>
+                <Ionicons name="close-circle" size={18} color="rgba(255, 255, 255, 0.4)" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
-      </View>
 
-      {/* Filters Chips row */}
-      <View style={styles.chipsContainer}>
-        {['all', 'sent', 'received', 'failed'].map((filter) => {
-          const isActive = activeFilter === filter;
-          return (
-            <TouchableOpacity
-              key={filter}
-              style={[
-                styles.chip,
-                { backgroundColor: theme.card, borderColor: theme.border },
-                isActive && { backgroundColor: theme.primary, borderColor: theme.primary }
-              ]}
-              onPress={() => { setActiveFilter(filter); setVisibleCount(15); }}
-            >
-              <Text style={[
-                styles.chipText,
-                { color: theme.textSecondary },
-                isActive && { color: '#FFFFFF', fontWeight: '700' }
-              ]}>
-                {filter.toUpperCase()}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* Main transactions list */}
-      <FlatList
-        data={flatListData}
-        keyExtractor={(item, index) => item.isHeader ? `header-${item.title}-${index}` : `tx-${item.item.id}`}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={theme.primary}
+        {/* Filters Chips row */}
+        <View style={styles.chipsContainer}>
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={['all', 'sent', 'received', 'failed']}
+            keyExtractor={item => item}
+            renderItem={({ item }) => (
+              <FilterChip
+                label={item}
+                isActive={activeFilter === item}
+                onPress={() => { setActiveFilter(item); setVisibleCount(15); }}
+              />
+            )}
+            contentContainerStyle={styles.chipsListContent}
           />
-        }
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.2}
-        ListFooterComponent={() => (
-          visibleCount < filteredTransactions.length ? (
-            <ActivityIndicator size="small" color={theme.primary} style={{ marginVertical: 16 }} />
-          ) : null
-        )}
-        ListEmptyComponent={() => (
-          !isLoading && (
+        </View>
+
+        {/* Main transactions list */}
+        <FlatList
+          data={flatListData}
+          keyExtractor={(item, index) => item.isHeader ? `header-${item.title}-${index}` : `tx-${item.item.id}`}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.3}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor="#7C6FFF"
+              title="Refreshing..."
+              titleColor="rgba(255,255,255,0.4)"
+            />
+          }
+          ListEmptyComponent={() => (
             <View style={styles.emptyContainer}>
-              <Ionicons name="receipt-outline" size={48} color={theme.textSecondary} />
-              <Text style={[styles.emptyText, { color: theme.text }]}>No transactions found</Text>
-              <Text style={[styles.emptySubtext, { color: theme.textSecondary }]}>
-                Try adjusting your search query or filter chips
-              </Text>
+              <Ionicons name="receipt-outline" size={48} color="rgba(255,255,255,0.2)" style={{ marginBottom: 12 }} />
+              <Text style={styles.emptyText}>No transactions found</Text>
+              <Text style={styles.emptySub}>Try searching for another keyword or change your filter.</Text>
             </View>
-          )
-        )}
-      />
-    </SafeAreaView>
+          )}
+        />
+      </SafeAreaView>
+    </GlobalBackground>
   );
 }
 
@@ -235,75 +255,99 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '800',
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#FFFFFF',
     marginBottom: 16,
-    letterSpacing: 0.5,
+    letterSpacing: -0.5,
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderRadius: 16,
-    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 20,
     height: 56,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 4,
-    elevation: 2,
+  },
+  searchBarFocused: {
+    borderColor: 'rgba(124, 111, 255, 0.4)',
+    shadowColor: '#7C6FFF',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
   },
   searchInput: {
     flex: 1,
     fontSize: 15,
+    color: '#FFFFFF',
     height: '100%',
   },
   chipsContainer: {
-    flexDirection: 'row',
+    height: 54,
+    marginVertical: 4,
+  },
+  chipsListContent: {
     paddingHorizontal: 20,
-    marginVertical: 10,
-    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   chip: {
-    borderWidth: 1.5,
     borderRadius: 12,
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    paddingHorizontal: 14,
-    alignItems: 'center',
+    marginRight: 8,
+    borderWidth: 1,
     justifyContent: 'center',
-    flex: 1,
-    marginHorizontal: 3,
+    alignItems: 'center',
+  },
+  chipInactive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  chipActive: {
+    backgroundColor: 'rgba(124, 111, 255, 0.2)',
+    borderColor: 'rgba(124, 111, 255, 0.4)',
   },
   chipText: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 12,
+  },
+  chipTextInactive: {
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontWeight: '500',
+  },
+  chipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   listContent: {
     paddingHorizontal: 20,
-    paddingBottom: 30,
+    paddingBottom: 110, // Avoid overlapping TabBar
   },
   sectionHeaderTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 16,
-    marginBottom: 8,
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.3)',
+    letterSpacing: 1.5,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    marginTop: 24,
+    marginBottom: 10,
   },
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 64,
     paddingHorizontal: 40,
+    marginTop: 80,
   },
   emptyText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
-    marginTop: 16,
+    color: '#FFFFFF',
     marginBottom: 6,
   },
-  emptySubtext: {
+  emptySub: {
     fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.5)',
     textAlign: 'center',
     lineHeight: 18,
   },

@@ -1,34 +1,52 @@
-import React, { useState, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableWithoutFeedback, useColorScheme, Animated } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { StyleSheet, Text, View, TouchableWithoutFeedback, Animated, Easing, Dimensions, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, darkColors } from '../constants/colors';
+
+const { width: screenWidth } = Dimensions.get('window');
 
 export const VirtualCard = ({ cardDetails, cardholderName, isFrozen }) => {
-  const systemTheme = useColorScheme();
-  const theme = systemTheme === 'dark' ? darkColors : colors;
-
   const [flipped, setFlipped] = useState(false);
   const rotateValue = useRef(new Animated.Value(0)).current;
+
+  // Shimmer animation for card front
+  const shimmerX = useRef(new Animated.Value(-300)).current;
+
+  useEffect(() => {
+    const startShimmer = () => {
+      shimmerX.setValue(-300);
+      Animated.sequence([
+        Animated.timing(shimmerX, {
+          toValue: 300,
+          duration: 3000,
+          useNativeDriver: false,
+        }),
+        Animated.delay(4000),
+      ]).start(() => startShimmer());
+    };
+    startShimmer();
+  }, []);
 
   const handleCardPress = () => {
     if (isFrozen) return;
     const toValue = flipped ? 0 : 180;
-    setFlipped(!flipped);
+    
     Animated.timing(rotateValue, {
       toValue,
       duration: 600,
+      easing: Easing.bezier(0.4, 0, 0.2, 1),
       useNativeDriver: true,
-    }).start();
+    }).start(() => {
+      setFlipped(!flipped);
+    });
   };
 
-  // Interpolate front rotateY
+  // Interpolations for 3D card rotation
   const frontRotateY = rotateValue.interpolate({
     inputRange: [0, 180],
     outputRange: ['0deg', '180deg'],
   });
 
-  // Interpolate back rotateY
   const backRotateY = rotateValue.interpolate({
     inputRange: [0, 180],
     outputRange: ['180deg', '360deg'],
@@ -38,101 +56,153 @@ export const VirtualCard = ({ cardDetails, cardholderName, isFrozen }) => {
   const expiry = cardDetails?.expiry || '12/28';
   const cvv = cardDetails?.cvv || '123';
 
-  // Format card number with spaces for realistic representation: **** **** **** 4242
-  const formattedCardNumber = cardNumber.replace(/(\d{4})/g, '$1 ').trim();
+  // Format card number with spaces: •••• •••• •••• 4242
+  const last4 = cardNumber.slice(-4);
+  const maskedCardNumber = `•••• •••• •••• ${last4}`;
 
-  // If frozen, display a semi-transparent dark overlay with lock icon
   return (
     <View style={styles.cardWrapper}>
       <TouchableWithoutFeedback onPress={handleCardPress}>
         <View style={styles.cardContainer}>
-          {/* Card Front */}
+          {/* FRONT FACE */}
           <Animated.View style={[
-            styles.cardSide, 
-            styles.cardFront, 
+            styles.cardSide,
+            styles.cardFront,
             {
               transform: [
-                { perspective: 1000 },
+                { perspective: 1200 },
                 { rotateY: frontRotateY }
-              ]
+              ],
+              // Hide front when flipped to back on iOS
+              opacity: rotateValue.interpolate({
+                inputRange: [89, 90],
+                outputRange: [1, 0]
+              })
             }
           ]}>
             <LinearGradient
-              colors={isFrozen ? ['#4B5563', '#374151'] : [theme.primary, theme.accent]}
-              style={styles.gradientCard}
+              colors={['#1A0533', '#2D1B69', '#1A0A40']}
+              style={StyleSheet.absoluteFill}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-            >
-              <View style={styles.headerRow}>
-                <Text style={styles.brandText}>ZenPay</Text>
-                <Ionicons name="wifi" size={20} color="#FFFFFF" style={styles.nfcIcon} />
-              </View>
+            />
 
-              <View style={styles.chipRow}>
-                <View style={styles.cardChip} />
-              </View>
+            {/* Shimmer overlay */}
+            <Animated.View style={[
+              styles.shimmerContainer,
+              { transform: [{ translateX: shimmerX }] }
+            ]}>
+              <LinearGradient
+                colors={['transparent', 'rgba(255, 255, 255, 0.08)', 'transparent']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.shimmerLine}
+              />
+            </Animated.View>
 
-              <Text style={styles.cardNumberText}>{formattedCardNumber}</Text>
+            {/* Subtle top highlight */}
+            <View style={styles.topHighlight} />
 
-              <View style={styles.footerRow}>
-                <View>
-                  <Text style={styles.cardLabel}>CARDHOLDER</Text>
-                  <Text style={styles.cardValueText}>{cardholderName?.toUpperCase() || 'CLIENT NAME'}</Text>
+            {/* Top row */}
+            <View style={styles.headerRow}>
+              <Text style={styles.brandText}>ZenPay</Text>
+              
+              {/* Gold Chip & NFC group */}
+              <View style={styles.rightGroup}>
+                <View style={styles.cardChip}>
+                  <View style={styles.chipLineH1} />
+                  <View style={styles.chipLineH2} />
+                  <View style={styles.chipLineV} />
                 </View>
-                <View style={styles.rightAlign}>
-                  <Text style={styles.cardLabel}>EXPIRES</Text>
-                  <Text style={styles.cardValueText}>{expiry}</Text>
-                </View>
-                <Text style={styles.logoText}>VISA</Text>
+                
+                <Ionicons 
+                  name="wifi-outline" 
+                  size={18} 
+                  color="rgba(255, 255, 255, 0.4)" 
+                  style={styles.nfcIcon} 
+                />
               </View>
-            </LinearGradient>
-            
+            </View>
+
+            {/* Card number */}
+            <Text style={styles.cardNumberText}>{maskedCardNumber}</Text>
+
+            {/* Bottom row */}
+            <View style={styles.footerRow}>
+              <View>
+                <Text style={styles.cardLabel}>CARD HOLDER</Text>
+                <Text style={styles.cardValueText}>
+                  {cardholderName?.toUpperCase() || 'MUHAMMAD TAYYAB'}
+                </Text>
+              </View>
+              <View style={styles.expiryBox}>
+                <Text style={styles.cardLabel}>EXPIRES</Text>
+                <Text style={styles.cardValueText}>{expiry}</Text>
+              </View>
+              <Text style={styles.visaText}>VISA</Text>
+            </View>
+
+            {/* Frozen Overlay */}
             {isFrozen && (
               <View style={styles.frozenOverlay}>
-                <Ionicons name="lock-closed" size={32} color="#FFFFFF" />
-                <Text style={styles.frozenText}>Frozen</Text>
+                <Ionicons name="snow-outline" size={32} color="#00D4FF" />
+                <Text style={styles.frozenText}>Card Frozen</Text>
               </View>
             )}
           </Animated.View>
 
-          {/* Card Back */}
+          {/* BACK FACE */}
           <Animated.View style={[
-            styles.cardSide, 
-            styles.cardBack, 
+            styles.cardSide,
+            styles.cardBack,
             {
               transform: [
-                { perspective: 1000 },
+                { perspective: 1200 },
                 { rotateY: backRotateY }
-              ]
+              ],
+              // Hide back when facing front
+              opacity: rotateValue.interpolate({
+                inputRange: [90, 91],
+                outputRange: [0, 1]
+              })
             }
           ]}>
             <LinearGradient
-              colors={isFrozen ? ['#374151', '#1F2937'] : [theme.primaryDark, theme.primary]}
-              style={styles.gradientCard}
+              colors={['#1A0533', '#2D1B69', '#1A0A40']}
+              style={StyleSheet.absoluteFill}
               start={{ x: 1, y: 1 }}
               end={{ x: 0, y: 0 }}
-            >
-              <View style={styles.magneticStrip} />
+            />
 
-              <View style={styles.backInfoContainer}>
-                <Text style={styles.backHelpText}>Authorized Signature • Not Transferable</Text>
-                <View style={styles.cvvStrip}>
-                  <View style={styles.signaturePad} />
-                  <View style={styles.cvvBox}>
-                    <Text style={styles.cvvText}>{cvv}</Text>
-                  </View>
-                </View>
-                
-                <Text style={styles.backInstructions}>
-                  This card is issued by ZenPay and is subject to the cardholder agreement.
-                </Text>
+            {/* Subtle top highlight */}
+            <View style={styles.topHighlight} />
+
+            {/* Magnetic strip */}
+            <View style={styles.magneticStrip} />
+
+            {/* Signature strip */}
+            <View style={styles.signatureRow}>
+              <View style={styles.signatureStrip} />
+              
+              <View style={styles.cvvBox}>
+                <Text style={styles.cvvText}>{cvv}</Text>
               </View>
-            </LinearGradient>
-            
+            </View>
+
+            {/* Watermark */}
+            <Text style={styles.watermarkText} pointerEvents="none">
+              ZenPay
+            </Text>
+
+            <Text style={styles.backInstructions}>
+              This card is issued by ZenPay and is subject to the cardholder agreement.
+            </Text>
+
+            {/* Frozen Overlay */}
             {isFrozen && (
               <View style={styles.frozenOverlay}>
-                <Ionicons name="lock-closed" size={32} color="#FFFFFF" />
-                <Text style={styles.frozenText}>Frozen</Text>
+                <Ionicons name="snow-outline" size={32} color="#00D4FF" />
+                <Text style={styles.frozenText}>Card Frozen</Text>
               </View>
             )}
           </Animated.View>
@@ -150,7 +220,7 @@ const styles = StyleSheet.create({
     marginVertical: 16,
   },
   cardContainer: {
-    width: '90%',
+    width: '92%',
     height: '100%',
     position: 'relative',
   },
@@ -158,27 +228,44 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     position: 'absolute',
-    borderRadius: 20,
-    backfaceVisibility: 'hidden',
+    borderRadius: 24,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
+    shadowColor: '#7C6FFF',
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
-    shadowRadius: 10,
+    shadowRadius: 16,
     elevation: 6,
   },
   cardFront: {
     zIndex: 1,
+    padding: 24,
+    justifyContent: 'space-between',
   },
   cardBack: {
     zIndex: 0,
-  },
-  gradientCard: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 20,
-    padding: 20,
     justifyContent: 'space-between',
+    paddingBottom: 16,
+  },
+  shimmerContainer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: 300,
+  },
+  shimmerLine: {
+    height: '100%',
+    width: 60,
+    transform: [{ rotate: '45deg' }, { scaleY: 1.5 }],
+  },
+  topHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    zIndex: 2,
   },
   headerRow: {
     flexDirection: 'row',
@@ -186,34 +273,59 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   brandText: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     color: '#FFFFFF',
-    fontStyle: 'italic',
-    letterSpacing: 1,
+    letterSpacing: -0.5,
+  },
+  rightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cardChip: {
+    width: 32,
+    height: 24,
+    borderRadius: 4,
+    backgroundColor: 'rgba(247, 201, 72, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(247, 201, 72, 0.5)',
+    position: 'relative',
+    marginRight: 12,
+  },
+  chipLineH1: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 8,
+    height: 0.5,
+    backgroundColor: 'rgba(247, 201, 72, 0.6)',
+  },
+  chipLineH2: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 15,
+    height: 0.5,
+    backgroundColor: 'rgba(247, 201, 72, 0.6)',
+  },
+  chipLineV: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 15,
+    width: 0.5,
+    backgroundColor: 'rgba(247, 201, 72, 0.6)',
   },
   nfcIcon: {
     transform: [{ rotate: '90deg' }],
   },
-  chipRow: {
-    marginVertical: 4,
-  },
-  cardChip: {
-    width: 44,
-    height: 32,
-    backgroundColor: '#F59E0B',
-    borderRadius: 6,
-    opacity: 0.85,
-    borderColor: '#D97706',
-    borderWidth: 1,
-  },
   cardNumberText: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '600',
     color: '#FFFFFF',
-    letterSpacing: 2,
-    fontFamily: 'Courier',
-    marginVertical: 8,
+    letterSpacing: 6,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    marginVertical: 12,
   },
   footerRow: {
     flexDirection: 'row',
@@ -222,33 +334,33 @@ const styles = StyleSheet.create({
   },
   cardLabel: {
     fontSize: 8,
-    color: '#E0D4F2',
+    color: 'rgba(255, 255, 255, 0.4)',
     fontWeight: '600',
+    letterSpacing: 1,
     marginBottom: 4,
-    letterSpacing: 0.5,
   },
   cardValueText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#FFFFFF',
-    letterSpacing: 0.5,
   },
-  rightAlign: {
+  expiryBox: {
     alignItems: 'center',
     marginHorizontal: 12,
   },
-  logoText: {
+  visaText: {
     fontSize: 20,
-    fontWeight: '900',
-    color: '#FFFFFF',
+    fontWeight: '800',
+    color: 'rgba(255, 255, 255, 0.8)',
     fontStyle: 'italic',
   },
   frozenOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 20,
+    borderRadius: 24,
+    zIndex: 10,
   },
   frozenText: {
     color: '#FFFFFF',
@@ -258,56 +370,53 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   magneticStrip: {
-    height: 40,
-    backgroundColor: '#111827',
-    width: '120%',
-    marginLeft: -30,
-    marginTop: 10,
+    height: 50,
+    backgroundColor: '#0A0A0A',
+    width: '100%',
+    marginTop: 30,
   },
-  backInfoContainer: {
-    flex: 1,
-    justifyContent: 'space-between',
-    marginTop: 15,
-  },
-  backHelpText: {
-    fontSize: 8,
-    color: '#E0D4F2',
-    fontStyle: 'italic',
-  },
-  cvvStrip: {
+  signatureRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 8,
+    marginHorizontal: 20,
+    marginTop: 16,
   },
-  signaturePad: {
+  signatureStrip: {
     flex: 1,
-    height: 32,
-    backgroundColor: '#FFFFFF',
-    opacity: 0.85,
-    borderRadius: 4,
+    height: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderTopLeftRadius: 4,
+    borderBottomLeftRadius: 4,
   },
   cvvBox: {
-    width: 48,
-    height: 28,
+    width: 60,
+    height: 40,
     backgroundColor: '#FFFFFF',
     borderTopRightRadius: 4,
     borderBottomRightRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    borderLeftWidth: 1,
-    borderLeftColor: '#E5E7EB',
   },
   cvvText: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#1A1A2E',
-    fontStyle: 'italic',
+    color: '#111111',
+  },
+  watermarkText: {
+    fontSize: 40,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    opacity: 0.04,
+    transform: [{ rotate: '-15deg' }],
+    alignSelf: 'center',
+    marginVertical: 4,
   },
   backInstructions: {
-    fontSize: 7,
-    color: '#D1D5DB',
+    fontSize: 8,
+    color: 'rgba(255, 255, 255, 0.3)',
     textAlign: 'center',
-    lineHeight: 10,
+    lineHeight: 12,
+    paddingHorizontal: 24,
   },
 });
 

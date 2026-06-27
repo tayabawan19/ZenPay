@@ -1,67 +1,63 @@
 export const colors = {
-  // Backgrounds
-  background: '#0A0A0F',        // deep dark base
-  backgroundCard: '#12121A',    // card background
-  backgroundElevated: '#1A1A27',// elevated elements
-  card: '#12121A',              // alias for card background
-  
-  // Accent (gold instead of purple)
-  primary: '#C9A84C',           // premium gold
-  primaryLight: '#E8C97A',      // light gold
-  primaryDark: '#9A7A2E',       // dark gold
-  primaryGlow: 'rgba(201,168,76,0.15)', // gold glow
-  accent: '#C9A84C',            // alias for primary gold
+  // Base backgrounds (true dark)
+  bg0: '#000000',           // pure black base
+  bg1: '#080810',           // primary background
+  bg2: '#0E0E1A',           // card base
+  bg3: '#141425',           // elevated surface
+
+  // Glass layers
+  glass1: 'rgba(255,255,255,0.03)',  // subtle glass
+  glass2: 'rgba(255,255,255,0.06)',  // medium glass
+  glass3: 'rgba(255,255,255,0.10)',  // strong glass
+  glassDark: 'rgba(0,0,0,0.4)',      // dark glass
+
+  // Primary accent — electric violet
+  primary: '#7C6FFF',
+  primaryBright: '#9D93FF',
+  primaryDim: '#4A3FCC',
+  primaryGlow: 'rgba(124,111,255,0.25)',
+  primaryGlow2: 'rgba(124,111,255,0.08)',
+
+  // Secondary accent — hot pink
+  secondary: '#FF6BBA',
+  secondaryGlow: 'rgba(255,107,186,0.2)',
+
+  // Tertiary — cyan
+  tertiary: '#00D4FF',
+  tertiaryGlow: 'rgba(0,212,255,0.15)',
+
+  // Semantic
+  success: '#00F5A0',
+  successGlow: 'rgba(0,245,160,0.2)',
+  danger: '#FF4D6A',
+  dangerGlow: 'rgba(255,77,106,0.2)',
+  warning: '#FFB020',
 
   // Text
-  textPrimary: '#F0F0F0',       // near white
-  textSecondary: '#8A8A9A',     // muted
-  textMuted: '#4A4A5A',         // very muted
-  text: '#F0F0F0',              // alias for primary text
+  textPrimary: '#FFFFFF',
+  textSecondary: 'rgba(255,255,255,0.6)',
+  textMuted: 'rgba(255,255,255,0.3)',
+  textDisabled: 'rgba(255,255,255,0.15)',
 
-  // Status
-  success: '#00D4AA',           // teal green
-  danger: '#FF4D6A',            // hot red
-  warning: '#FFB347',           // amber
+  // Borders (glass edges)
+  border1: 'rgba(255,255,255,0.08)',
+  border2: 'rgba(255,255,255,0.12)',
+  borderAccent: 'rgba(124,111,255,0.3)',
+  borderGlow: 'rgba(124,111,255,0.5)',
 
-  // Borders
-  border: 'rgba(255,255,255,0.06)',
-  borderGold: 'rgba(201,168,76,0.3)',
-
-  // Keep white for text if needed
+  // Compatibility Mappings
+  background: '#080810',
+  backgroundCard: '#0E0E1A',
+  backgroundElevated: '#141425',
+  card: '#0E0E1A',
+  accent: '#7C6FFF',
+  text: '#FFFFFF',
+  border: 'rgba(255,255,255,0.08)',
+  borderGold: 'rgba(124,111,255,0.3)',
   white: '#FFFFFF',
 };
 
-export const darkColors = {
-  // Backgrounds
-  background: '#0A0A0F',        // deep dark base
-  backgroundCard: '#12121A',    // card background
-  backgroundElevated: '#1A1A27',// elevated elements
-  card: '#12121A',              // alias for card background
-  
-  // Accent (gold instead of purple)
-  primary: '#C9A84C',           // premium gold
-  primaryLight: '#E8C97A',      // light gold
-  primaryDark: '#9A7A2E',       // dark gold
-  primaryGlow: 'rgba(201,168,76,0.15)', // gold glow
-  accent: '#C9A84C',            // alias for primary gold
-
-  // Text
-  textPrimary: '#F0F0F0',       // near white
-  textSecondary: '#8A8A9A',     // muted
-  textMuted: '#4A4A5A',         // very muted
-  text: '#F0F0F0',              // alias for primary text
-
-  // Status
-  success: '#00D4AA',           // teal green
-  danger: '#FF4D6A',            // hot red
-  warning: '#FFB347',           // amber
-
-  // Borders
-  border: 'rgba(255,255,255,0.06)',
-  borderGold: 'rgba(201,168,76,0.3)',
-
-  // Keep white for text if needed
-  white: '#FFFFFF',
-};
+// Dark theme defaults to the same premium dark colors
+export const darkColors = { ...colors };
 
 export default colors;

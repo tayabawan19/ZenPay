@@ -1,26 +1,65 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   StyleSheet, 
   Text, 
   View, 
   ScrollView, 
   TouchableOpacity, 
-  Switch, 
   Alert,
-  useColorScheme 
+  Animated,
+  Easing,
+  Platform,
+  Pressable
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useAuth } from '../../hooks/useAuth';
-import { colors, darkColors } from '../../constants/colors';
+import { useTransactions } from '../../hooks/useTransactions';
+import { colors } from '../../constants/colors';
+import GlobalBackground from '../../components/GlobalBackground';
+
+// Reusable Custom Toggle component (same as cards.jsx)
+const CustomToggle = ({ value, onValueChange, activeColor = '#7C6FFF', trackActiveBg = 'rgba(124, 111, 255, 0.3)' }) => {
+  const toggleAnim = useRef(new Animated.Value(value ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.spring(toggleAnim, {
+      toValue: value ? 1 : 0,
+      friction: 8,
+      tension: 100,
+      useNativeDriver: true
+    }).start();
+  }, [value]);
+
+  const translateX = toggleAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [2, 18]
+  });
+
+  return (
+    <TouchableOpacity
+      activeOpacity={1}
+      onPress={() => onValueChange(!value)}
+      style={[
+        styles.switchTrack,
+        {
+          backgroundColor: value ? trackActiveBg : 'rgba(255,255,255,0.1)',
+          borderColor: value ? activeColor : 'rgba(255,255,255,0.15)',
+        }
+      ]}
+    >
+      <Animated.View style={[
+        styles.switchThumb,
+        { transform: [{ translateX }] }
+      ]} />
+    </TouchableOpacity>
+  );
+};
 
 export default function ProfileScreen() {
-  const systemTheme = useColorScheme();
-  const theme = systemTheme === 'dark' ? darkColors : colors;
   const router = useRouter();
-
   const { 
     profile, 
     logout, 
@@ -30,7 +69,35 @@ export default function ProfileScreen() {
     toggleNotifications 
   } = useAuth();
 
-  // Biometrics setup and authentication handler
+  const { transactions } = useTransactions();
+
+  // Animations
+  const rotateAnim = useRef(new Animated.Value(0)).current;
+  const logoutScale = useRef(new Animated.Value(1.0)).current;
+  const logoutFlash = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // 20s slowly rotating ring
+    Animated.loop(
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: 20000,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    ).start();
+  }, []);
+
+  const spin = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  // Calculate dynamic profile statistics
+  const txCount = transactions.length;
+  const sentCount = transactions.filter(t => t.senderId === profile?.uid && t.category !== 'topup').length;
+  const receivedCount = transactions.filter(t => t.receiverId === profile?.uid || t.category === 'topup').length;
+
   const handleBiometricToggleChange = async (value) => {
     if (value) {
       try {
@@ -47,7 +114,6 @@ export default function ProfileScreen() {
           return;
         }
 
-        // Test authenticate before allowing toggle
         const result = await LocalAuthentication.authenticateAsync({
           promptMessage: 'Verify your identity to enable Biometric Login',
           fallbackLabel: 'Use passcode',
@@ -91,163 +157,260 @@ export default function ProfileScreen() {
     );
   };
 
+  const handleLogoutPressIn = () => {
+    Animated.parallel([
+      Animated.spring(logoutScale, { toValue: 0.97, useNativeDriver: true }),
+      Animated.timing(logoutFlash, { toValue: 1, duration: 100, useNativeDriver: false })
+    ]).start();
+  };
+
+  const handleLogoutPressOut = () => {
+    Animated.parallel([
+      Animated.spring(logoutScale, { toValue: 1.0, useNativeDriver: true }),
+      Animated.timing(logoutFlash, { toValue: 0, duration: 200, useNativeDriver: false })
+    ]).start();
+  };
+
+  const logoutBgColor = logoutFlash.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['rgba(255, 77, 106, 0.08)', 'rgba(255, 77, 106, 0.25)']
+  });
+
   const getInitials = (name) => {
     return name?.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() || 'ZP';
   };
 
-  // Helper row component
-  const SettingsRow = ({ iconName, iconColor, label, rightElement, onPress }) => (
+  // Helper settings row element
+  const SettingsRow = ({ iconName, iconColor, label, subtitle, rightElement, onPress, isLast }) => (
     <TouchableOpacity 
-      style={[styles.row, { borderBottomColor: theme.border }]} 
+      style={[styles.row, isLast && { borderBottomWidth: 0 }]} 
       onPress={onPress}
       disabled={!onPress}
+      activeOpacity={0.7}
     >
       <View style={styles.rowLeft}>
-        <View style={[styles.rowIconCircle, { backgroundColor: `${iconColor}12` }]}>
+        <View style={[styles.rowIconCircle, { backgroundColor: `${iconColor}15` }]}>
           <Ionicons name={iconName} size={18} color={iconColor} />
         </View>
-        <Text style={[styles.rowLabel, { color: theme.text }]}>{label}</Text>
+        <View style={styles.rowTextWrapper}>
+          <Text style={styles.rowLabel}>{label}</Text>
+          {subtitle ? (
+            <Text style={styles.rowSubtitle}>{subtitle}</Text>
+          ) : null}
+        </View>
       </View>
       <View style={styles.rowRight}>
         {rightElement || (
-          <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+          <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.2)" />
         )}
       </View>
     </TouchableOpacity>
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <Text style={[styles.title, { color: theme.text }]}>Settings</Text>
+    <GlobalBackground>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+          <Text style={styles.title}>Profile</Text>
 
-        {/* User profile details header card */}
-        <View style={[styles.profileCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={[styles.avatarCircle, { backgroundColor: theme.primary }]}>
-            <Text style={styles.avatarText}>{getInitials(profile?.name)}</Text>
-          </View>
-          <View style={styles.profileDetails}>
-            <Text style={[styles.nameText, { color: theme.text }]}>
-              {profile?.name || 'ZenPay Client'}
-            </Text>
-            <Text style={[styles.emailText, { color: theme.textSecondary }]}>
-              {profile?.email || 'email@example.com'}
-            </Text>
-            <Text style={[styles.phoneText, { color: theme.textSecondary }]}>
-              {profile?.phone || '+92 000 0000000'}
-            </Text>
-          </View>
-        </View>
+          {/* Profile Hero Glass Card */}
+          <View style={styles.profileCard}>
+            <View style={styles.topHighlight} />
 
-        {/* 1. Account Settings Group */}
-        <Text style={[styles.sectionHeading, { color: theme.textSecondary }]}>Account Settings</Text>
-        <View style={[styles.groupCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <SettingsRow 
-            iconName="person-outline" 
-            iconColor={theme.primary} 
-            label="Edit Profile" 
-            onPress={() => Alert.alert('Information', 'Profile editing features are managed automatically via database integrations.')}
-          />
-          <SettingsRow 
-            iconName="key-outline" 
-            iconColor={theme.primary} 
-            label="Change Password" 
-            onPress={() => Alert.alert('Change Password', 'An email verification link has been requested and is managed by Firebase.')}
-          />
-          <SettingsRow 
-            iconName="shield-checkmark-outline" 
-            iconColor={theme.success} 
-            label="KYC Status" 
-            rightElement={
-              <View style={styles.badgeRow}>
-                <Text style={[styles.badgeText, { color: theme.success }]}>VERIFIED</Text>
-                <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+            {/* Rotating Avatar container */}
+            <View style={styles.avatarContainer}>
+              <Animated.View style={[styles.avatarOuterRing, { transform: [{ rotate: spin }] }]} />
+              <View style={styles.avatarInner}>
+                <Text style={styles.avatarText}>{getInitials(profile?.name)}</Text>
               </View>
-            }
-            onPress={() => Alert.alert('Verification', 'Your account identity has been fully verified.')}
-          />
-        </View>
+              
+              {/* Edit Icon Overlay */}
+              <TouchableOpacity 
+                style={styles.btnEditAvatar} 
+                onPress={() => Alert.alert('Edit Avatar', 'Avatar edits are automatically fetched via linked database profiles.')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="pencil" size={14} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
 
-        {/* 2. Preferences Settings Group */}
-        <Text style={[styles.sectionHeading, { color: theme.textSecondary }]}>Preferences</Text>
-        <View style={[styles.groupCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <SettingsRow 
-            iconName="notifications-outline" 
-            iconColor={theme.accent} 
-            label="Push Notifications" 
-            rightElement={
-              <Switch
-                value={isNotificationsEnabled}
-                onValueChange={toggleNotifications}
-                trackColor={{ false: theme.border, true: theme.accent }}
-                thumbColor="#FFFFFF"
-              />
-            }
-          />
-          <SettingsRow 
-            iconName="finger-print-outline" 
-            iconColor={theme.accent} 
-            label="Biometric Login" 
-            rightElement={
-              <Switch
-                value={isBiometricsEnabled}
-                onValueChange={handleBiometricToggleChange}
-                trackColor={{ false: theme.border, true: theme.accent }}
-                thumbColor="#FFFFFF"
-              />
-            }
-          />
-          <SettingsRow 
-            iconName="cash-outline" 
-            iconColor={theme.accent} 
-            label="Default Currency" 
-            rightElement={
-              <View style={styles.badgeRow}>
-                <Text style={[styles.badgeSubText, { color: theme.textSecondary }]}>PKR (Rs.)</Text>
-                <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+            <Text style={styles.nameText}>{profile?.name || 'Tayyab'}</Text>
+            <Text style={styles.emailText}>{profile?.email || 'tayyab@zenpay.app'}</Text>
+
+            {/* Badges tags */}
+            <View style={styles.tagsRow}>
+              <View style={styles.verifiedBadge}>
+                <Text style={styles.verifiedBadgeText}>Verified ✓</Text>
               </View>
-            }
-            onPress={() => Alert.alert('Default Currency', 'Your region defaults automatically to PKR transactions.')}
-          />
-        </View>
+              <View style={styles.semesterBadge}>
+                <Text style={styles.semesterBadgeText}>4th Semester</Text>
+              </View>
+            </View>
+          </View>
 
-        {/* 3. Support Settings Group */}
-        <Text style={[styles.sectionHeading, { color: theme.textSecondary }]}>Support & Help</Text>
-        <View style={[styles.groupCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <SettingsRow 
-            iconName="help-circle-outline" 
-            iconColor="#3B82F6" 
-            label="Help Center" 
-            onPress={() => Alert.alert('Help Center', 'Please send support emails to contact@zenpay.app.')}
-          />
-          <SettingsRow 
-            iconName="mail-unread-outline" 
-            iconColor="#3B82F6" 
-            label="Contact Us" 
-            onPress={() => Alert.alert('Contact', 'Live customer chat is available 24/7 inside the app support lines.')}
-          />
-          <SettingsRow 
-            iconName="star-outline" 
-            iconColor="#3B82F6" 
-            label="Rate App" 
-            onPress={() => Alert.alert('Rate Us', 'Thanks for reviewing ZenPay on App Store and Play Store!')}
-          />
-        </View>
+          {/* Stats Row */}
+          <View style={styles.statsRow}>
+            {/* Card 1: Transactions */}
+            <View style={styles.statCard}>
+              <View style={styles.topHighlight} />
+              <Text style={styles.statNum}>{txCount}</Text>
+              <Text style={styles.statLabel}>Transactions</Text>
+            </View>
 
-        {/* Logout Button */}
-        <TouchableOpacity 
-          style={[styles.logoutBtn, { backgroundColor: theme.card, borderColor: theme.danger }]}
-          onPress={handleLogout}
-        >
-          <Ionicons name="log-out-outline" size={20} color={theme.danger} />
-          <Text style={[styles.logoutBtnText, { color: theme.danger }]}>Log Out</Text>
-        </TouchableOpacity>
-        
-        <Text style={[styles.versionText, { color: theme.textSecondary }]}>
-          ZenPay Version 1.0.0 (Production-ready)
-        </Text>
-      </ScrollView>
-    </SafeAreaView>
+            {/* Card 2: Sent */}
+            <View style={styles.statCard}>
+              <View style={styles.topHighlight} />
+              <Text style={styles.statNum}>{sentCount}</Text>
+              <Text style={styles.statLabel}>Sent</Text>
+            </View>
+
+            {/* Card 3: Received */}
+            <View style={styles.statCard}>
+              <View style={styles.topHighlight} />
+              <Text style={styles.statNum}>{receivedCount}</Text>
+              <Text style={styles.statLabel}>Received</Text>
+            </View>
+          </View>
+
+          {/* ACCOUNT GROUP */}
+          <Text style={styles.sectionHeading}>ACCOUNT</Text>
+          <View style={styles.groupCard}>
+            <View style={styles.topHighlight} />
+            <SettingsRow 
+              iconName="person-outline" 
+              iconColor="#7C6FFF" 
+              label="Edit Profile" 
+              subtitle="Update details & personal settings"
+              onPress={() => Alert.alert('Information', 'Profile settings are automatically managed by Firestore database syncing.')}
+            />
+            <SettingsRow 
+              iconName="key-outline" 
+              iconColor="#00D4FF" 
+              label="Change Password" 
+              subtitle="Request credential reset link"
+              onPress={() => Alert.alert('Change Password', 'A reset verification link has been sent to your registered email.')}
+            />
+            <SettingsRow 
+              iconName="shield-checkmark-outline" 
+              iconColor="#00F5A0" 
+              label="KYC Status" 
+              subtitle="Identity verification complete"
+              isLast={true}
+              rightElement={
+                <View style={styles.tagBadgeGreen}>
+                  <Text style={styles.tagBadgeGreenText}>Verified</Text>
+                </View>
+              }
+              onPress={() => Alert.alert('KYC Verified', 'Your identity documentation is verified and fully updated.')}
+            />
+          </View>
+
+          {/* PREFERENCES GROUP */}
+          <Text style={styles.sectionHeading}>PREFERENCES</Text>
+          <View style={styles.groupCard}>
+            <View style={styles.topHighlight} />
+            <SettingsRow 
+              iconName="notifications-outline" 
+              iconColor="#FFB020" 
+              label="Notifications" 
+              rightElement={
+                <CustomToggle
+                  value={isNotificationsEnabled}
+                  onValueChange={toggleNotifications}
+                  activeColor="#FFB020"
+                  trackActiveBg="rgba(255, 176, 32, 0.3)"
+                />
+              }
+            />
+            <SettingsRow 
+              iconName="finger-print-outline" 
+              iconColor="#00D4FF" 
+              label="Biometric Login" 
+              rightElement={
+                <CustomToggle
+                  value={isBiometricsEnabled}
+                  onValueChange={handleBiometricToggleChange}
+                  activeColor="#00D4FF"
+                  trackActiveBg="rgba(0, 212, 255, 0.3)"
+                />
+              }
+            />
+            <SettingsRow 
+              iconName="cash-outline" 
+              iconColor="#FF6BBA" 
+              label="Currency" 
+              isLast={true}
+              rightElement={
+                <Text style={styles.currencyRightLabel}>PKR</Text>
+              }
+              onPress={() => Alert.alert('Default Currency', 'Your P2P regions default to PKR (Rs.) transactions.')}
+            />
+          </View>
+
+          {/* SECURITY GROUP */}
+          <Text style={styles.sectionHeading}>SECURITY</Text>
+          <View style={styles.groupCard}>
+            <View style={styles.topHighlight} />
+            <SettingsRow 
+              iconName="lock-closed-outline" 
+              iconColor="#FF4D6A" 
+              label="App PIN" 
+              onPress={() => Alert.alert('App PIN', 'Local security PIN is configured and active.')}
+            />
+            <SettingsRow 
+              iconName="shield-outline" 
+              iconColor="#7C6FFF" 
+              label="Two-Factor Auth" 
+              isLast={true}
+              onPress={() => Alert.alert('Two-Factor Authentication', 'Manage your Multi-Factor configurations.')}
+            />
+          </View>
+
+          {/* SUPPORT GROUP */}
+          <Text style={styles.sectionHeading}>SUPPORT</Text>
+          <View style={styles.groupCard}>
+            <View style={styles.topHighlight} />
+            <SettingsRow 
+              iconName="help-circle-outline" 
+              iconColor="#8A8A9A" 
+              label="Help Center" 
+              onPress={() => Alert.alert('Help Center', 'Support resources are available via email at contact@zenpay.app')}
+            />
+            <SettingsRow 
+              iconName="chatbubble-ellipses-outline" 
+              iconColor="#8A8A9A" 
+              label="Contact Us" 
+              onPress={() => Alert.alert('Contact support', 'Live support channels are open 24/7 inside help lines.')}
+            />
+            <SettingsRow 
+              iconName="star-outline" 
+              iconColor="#FFB020" 
+              label="Rate ZenPay" 
+              isLast={true}
+              onPress={() => Alert.alert('Rate Us', 'Thanks for reviewing ZenPay on Google Play Store!')}
+            />
+          </View>
+
+          {/* LOGOUT BUTTON */}
+          <Animated.View style={{ transform: [{ scale: logoutScale }], marginTop: 24, marginBottom: 16 }}>
+            <Pressable
+              onPress={handleLogout}
+              onPressIn={handleLogoutPressIn}
+              onPressOut={handleLogoutPressOut}
+            >
+              <Animated.View style={[styles.logoutBtn, { backgroundColor: logoutBgColor }]}>
+                <Ionicons name="log-out-outline" size={20} color="#FF4D6A" />
+                <Text style={styles.logoutBtnText}>Sign Out</Text>
+              </Animated.View>
+            </Pressable>
+          </Animated.View>
+
+          <Text style={styles.versionText}>
+            ZenPay Version 1.0.0 (Production)
+          </Text>
+        </ScrollView>
+      </SafeAreaView>
+    </GlobalBackground>
   );
 }
 
@@ -257,139 +420,262 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 110, // tabBar offset
   },
   title: {
-    fontSize: 24,
-    fontWeight: '800',
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#FFFFFF',
     marginBottom: 16,
-    letterSpacing: 0.5,
+    letterSpacing: -0.5,
   },
   profileCard: {
-    flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderRadius: 20,
+    padding: 28,
+    borderRadius: 24,
     borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 4,
-    elevation: 2,
+    position: 'relative',
+    overflow: 'hidden',
   },
-  avatarCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 22,
+  topHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    zIndex: 2,
+  },
+  avatarContainer: {
+    width: 100,
+    height: 100,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    position: 'relative',
+    marginBottom: 16,
+  },
+  avatarOuterRing: {
+    position: 'absolute',
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
+    borderColor: 'rgba(124, 111, 255, 0.4)',
+  },
+  avatarInner: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: 'rgba(124, 111, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   avatarText: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
+    color: '#7C6FFF',
+    fontSize: 32,
+    fontWeight: '800',
   },
-  profileDetails: {
-    flex: 1,
+  btnEditAvatar: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#7C6FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#080810',
   },
   nameText: {
-    fontSize: 16,
+    fontSize: 22,
     fontWeight: '700',
-    marginBottom: 2,
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
   },
   emailText: {
-    fontSize: 12,
-    marginBottom: 2,
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.4)',
+    marginTop: 4,
   },
-  phoneText: {
-    fontSize: 12,
+  tagsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  verifiedBadge: {
+    backgroundColor: 'rgba(0, 245, 160, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 245, 160, 0.3)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginRight: 6,
+  },
+  verifiedBadgeText: {
+    color: '#00F5A0',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  semesterBadge: {
+    backgroundColor: 'rgba(124, 111, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(124, 111, 255, 0.3)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginLeft: 6,
+  },
+  semesterBadgeText: {
+    color: '#7C6FFF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 16,
+    alignItems: 'center',
+    marginHorizontal: 4,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  statNum: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   sectionHeading: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.3)',
+    letterSpacing: 1.5,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
     marginLeft: 6,
     marginBottom: 8,
   },
   groupCard: {
     borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderRadius: 20,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.01,
-    shadowRadius: 3,
-    elevation: 1,
+    overflow: 'hidden',
+    position: 'relative',
   },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 14,
+    paddingVertical: 18,
     borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
   rowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
   rowIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 14,
+  },
+  rowTextWrapper: {
+    flex: 1,
   },
   rowLabel: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
+    color: '#FFFFFF',
+  },
+  rowSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.4)',
+    marginTop: 2,
   },
   rowRight: {
     justifyContent: 'center',
     alignItems: 'flex-end',
+    marginLeft: 12,
   },
-  badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  tagBadgeGreen: {
+    backgroundColor: 'rgba(0, 245, 160, 0.1)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 245, 160, 0.2)',
   },
-  badgeText: {
+  tagBadgeGreenText: {
+    color: '#00F5A0',
     fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    marginRight: 6,
+    fontWeight: '600',
   },
-  badgeSubText: {
+  currencyRightLabel: {
+    color: 'rgba(255, 255, 255, 0.4)',
     fontSize: 13,
-    fontWeight: '500',
-    marginRight: 6,
+    fontWeight: '600',
   },
   logoutBtn: {
     flexDirection: 'row',
-    height: 54,
-    borderRadius: 16,
-    borderWidth: 1.5,
+    height: 58,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 77, 106, 0.25)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 12,
-    marginBottom: 20,
+    width: '100%',
   },
   logoutBtnText: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
+    color: '#FF4D6A',
     marginLeft: 10,
   },
   versionText: {
     fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.3)',
     textAlign: 'center',
     marginVertical: 10,
+  },
+  // Custom switch styles
+  switchTrack: {
+    width: 38,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  switchThumb: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#FFFFFF',
   },
 });

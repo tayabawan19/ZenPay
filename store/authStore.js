@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { loginUser, registerUser, logoutUser, sendPasswordReset } from '../services/auth';
 import { auth, db, onAuthStateChanged, signOut } from '../services/firebase';
 import { doc, onSnapshot, updateDoc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { useTransactionStore } from './transactionStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../constants/api';
@@ -226,11 +227,68 @@ export const useAuthStore = create((set, get) => ({
   /**
    * Register user
    */
-  register: async (name, email, phone, password) => {
+  register: async (fullName, email, phoneNumber, password) => {
     set({ isLoading: true, error: null });
     try {
-      const user = await registerUser(name, email, phone, password);
-      return user;
+      // 1. Firebase createUserWithEmailAndPassword succeeds
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      
+      // Immediately create a Firestore document at /users/{uid}
+      try {
+        await setDoc(doc(db, 'users', userCredential.user.uid), {
+          uid: userCredential.user.uid,
+          name: fullName,
+          email: email.toLowerCase().trim(),
+          phone: phoneNumber,
+          balance: 0,
+          createdAt: serverTimestamp(),
+          kycStatus: 'pending',
+          virtualCard: {
+            number: '4242 4242 4242 4242',
+            expiry: '12/28',
+            cvv: '123',
+            limit: 50000,
+            spent: 0,
+            isActive: true,
+            isFrozen: false,
+          }
+        });
+      } catch (setDocErr) {
+        // If setDoc fails -> delete the Firebase Auth user and show error
+        await userCredential.user.delete();
+        throw new Error("Account creation failed. Please try again.");
+      }
+
+      // 2. Update Zustand authStore
+      set({
+        user: {
+          uid: userCredential.user.uid,
+          name: fullName,
+          email: email,
+          phone: phoneNumber,
+          balance: 0,
+        },
+        isAuthenticated: true,
+      });
+
+      // 3. Start real-time listener immediately after register
+      const uid = userCredential.user.uid;
+      const userRef = doc(db, 'users', uid);
+      const unsubscribe = onSnapshot(userRef, (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          set({ 
+            user: { ...get().user, ...data },
+            balance: data.balance,
+            profile: data // Also update the profile field so the Home/Balance card works!
+          });
+        }
+      });
+      set({ unsubscribeUser: unsubscribe });
+
+      set({ isLoading: false });
+      return userCredential.user;
+
     } catch (error) {
       set({ error: error.message, isLoading: false });
       throw error;

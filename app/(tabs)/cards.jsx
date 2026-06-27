@@ -1,27 +1,64 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   StyleSheet, 
   Text, 
   View, 
   ScrollView, 
   TouchableOpacity, 
-  Switch, 
   TextInput,
   Alert,
-  useColorScheme 
+  Animated,
+  Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../hooks/useAuth';
 import { useTransactions } from '../../hooks/useTransactions';
 import VirtualCard from '../../components/VirtualCard';
-import { colors, darkColors } from '../../constants/colors';
+import { colors } from '../../constants/colors';
 import { formatPKR } from '../../utils/format';
+import GlobalBackground from '../../components/GlobalBackground';
+
+// Reusable Custom Toggle component with spring sliding thumb
+const CustomToggle = ({ value, onValueChange, activeColor = '#00D4FF', trackActiveBg = 'rgba(0,212,255,0.2)' }) => {
+  const toggleAnim = useRef(new Animated.Value(value ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.spring(toggleAnim, {
+      toValue: value ? 1 : 0,
+      friction: 8,
+      tension: 100,
+      useNativeDriver: true
+    }).start();
+  }, [value]);
+
+  const translateX = toggleAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [2, 18] // Track width 36 - thumb 16 - padding 2
+  });
+
+  return (
+    <TouchableOpacity
+      activeOpacity={1}
+      onPress={() => onValueChange(!value)}
+      style={[
+        styles.switchTrack,
+        {
+          backgroundColor: value ? trackActiveBg : 'rgba(255,255,255,0.1)',
+          borderColor: value ? activeColor : 'rgba(255,255,255,0.15)',
+        }
+      ]}
+    >
+      <Animated.View style={[
+        styles.switchThumb,
+        { transform: [{ translateX }] }
+      ]} />
+    </TouchableOpacity>
+  );
+};
 
 export default function CardsScreen() {
-  const systemTheme = useColorScheme();
-  const theme = systemTheme === 'dark' ? darkColors : colors;
-
   const { profile, toggleCardFreeze, setCardLimit, toggleCardOnlinePayments } = useAuth();
   const { transactions } = useTransactions();
 
@@ -29,7 +66,7 @@ export default function CardsScreen() {
   const [customLimit, setCustomLimit] = useState('');
   const [isEditingLimit, setIsEditingLimit] = useState(false);
 
-  // Spent amount: sum of all debit transactions (successful transfers and payments)
+  // Spent amount: sum of P2P debits
   const cardSpent = transactions
     .filter(tx => tx.senderId === profile?.uid && tx.status === 'success' && tx.category !== 'topup')
     .reduce((sum, tx) => sum + tx.amount, 0);
@@ -44,10 +81,22 @@ export default function CardsScreen() {
     onlinePayments: profile?.virtualCard?.onlinePayments ?? true,
   };
 
-  // Card Purchases list should show all debit transactions (successful card-related transactions)
   const cardTransactions = transactions.filter(
     tx => tx.senderId === profile?.uid && tx.status === 'success' && tx.category !== 'topup'
   );
+
+  // Animated limit bar on mount
+  const limitAnim = useRef(new Animated.Value(0)).current;
+  const spentRatio = card.limit > 0 ? Math.min(card.spent / card.limit, 1.0) : 0;
+
+  useEffect(() => {
+    limitAnim.setValue(0);
+    Animated.timing(limitAnim, {
+      toValue: spentRatio,
+      duration: 1000,
+      useNativeDriver: false,
+    }).start();
+  }, [spentRatio]);
 
   const handleLimitChange = async (amount) => {
     if (card.isFrozen) return;
@@ -72,238 +121,263 @@ export default function CardsScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <Text style={[styles.title, { color: theme.text }]}>Virtual Card</Text>
+    <GlobalBackground>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+          <Text style={styles.title}>Virtual Card</Text>
 
-        {/* Realistic Card Element */}
-        <VirtualCard
-          cardDetails={card}
-          cardholderName={profile?.name}
-          isFrozen={card.isFrozen}
-        />
+          {/* 3D Realistic flip card */}
+          <VirtualCard
+            cardDetails={card}
+            cardholderName={profile?.name}
+            isFrozen={card.isFrozen}
+          />
 
-        <Text style={[styles.helperText, { color: theme.textSecondary }]}>
-          {card.isFrozen ? "Card Frozen — Actions Disabled" : "Tap card to reveal CVV security code"}
-        </Text>
+          <Text style={styles.helperText}>
+            {card.isFrozen ? "Card Frozen — Actions Disabled ❄️" : "Tap card to flip and view security details"}
+          </Text>
 
-        {/* Card Details Panel */}
-        <View style={[styles.detailsCard, { backgroundColor: theme.card, borderColor: theme.border }, card.isFrozen && { opacity: 0.5 }]}>
-          <TouchableOpacity 
-            style={styles.detailsHeader} 
-            onPress={() => {
-              if (card.isFrozen) return;
-              setShowDetails(!showDetails);
-            }}
-            disabled={card.isFrozen}
-          >
-            <View style={styles.detailsHeaderLeft}>
-              <Ionicons name="eye-outline" size={20} color={theme.primary} />
-              <Text style={[styles.detailsTitle, { color: theme.text }]}>View Card Details</Text>
-            </View>
-            <Ionicons 
-              name={showDetails ? 'chevron-up' : 'chevron-down'} 
-              size={20} 
-              color={theme.textSecondary} 
-            />
-          </TouchableOpacity>
+          {/* Card Details Panel */}
+          <View style={[
+            styles.detailsCard, 
+            card.isFrozen && { opacity: 0.5 }
+          ]}>
+            <View style={styles.topHighlight} />
 
-          {showDetails && !card.isFrozen && (
-            <View style={[styles.detailsExpanded, { borderTopColor: theme.border }]}>
-              <View style={styles.detailRow}>
-                <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Card Number</Text>
-                <Text style={[styles.detailValue, { color: theme.text }]}>
-                  {card.number.replace(/(\d{4})/g, '$1 ').trim()}
-                </Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Expiry Date</Text>
-                <Text style={[styles.detailValue, { color: theme.text }]}>{card.expiry}</Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>CVV Code</Text>
-                <Text style={[styles.detailValue, { color: theme.text }]}>{card.cvv}</Text>
-              </View>
-            </View>
-          )}
-        </View>
-
-        {/* Toggle Switches Controls */}
-        <View style={[styles.controlsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          {/* 1. Freeze Card Control */}
-          <View style={styles.controlRow}>
-            <View style={styles.controlInfo}>
-              <View style={[styles.controlIconBg, { backgroundColor: 'rgba(123, 94, 167, 0.1)' }]}>
-                <Ionicons name="lock-closed-outline" size={20} color={theme.primary} />
-              </View>
-              <View>
-                <Text style={[styles.controlTitle, { color: theme.text }]}>Freeze Card</Text>
-                <Text style={[styles.controlSub, { color: theme.textSecondary }]}>Temporarily disable this card</Text>
-              </View>
-            </View>
-            <Switch
-              value={card.isFrozen}
-              onValueChange={toggleCardFreeze}
-              trackColor={{ false: theme.border, true: theme.primary }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-
-          <View style={[styles.controlDivider, { backgroundColor: theme.border }]} />
-
-          {/* 2. Online Payments Permission */}
-          <View style={[styles.controlRow, card.isFrozen && { opacity: 0.5 }]}>
-            <View style={styles.controlInfo}>
-              <View style={[styles.controlIconBg, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
-                <Ionicons name="globe-outline" size={20} color={theme.success} />
-              </View>
-              <View>
-                <Text style={[styles.controlTitle, { color: theme.text }]}>Online Transactions</Text>
-                <Text style={[styles.controlSub, { color: theme.textSecondary }]}>Allow e-commerce purchases</Text>
-              </View>
-            </View>
-            <Switch
-              value={card.onlinePayments ?? true}
-              onValueChange={toggleCardOnlinePayments}
-              trackColor={{ false: theme.border, true: theme.success }}
-              thumbColor="#FFFFFF"
-              disabled={card.isFrozen}
-            />
-          </View>
-        </View>
-
-        {/* Limits Setting Slider Panel */}
-        <View style={[styles.limitsCard, { backgroundColor: theme.card, borderColor: theme.border }, card.isFrozen && { opacity: 0.5 }]}>
-          <View style={styles.limitHeader}>
-            <View>
-              <Text style={[styles.limitTitle, { color: theme.text }]}>Daily Spending Limit</Text>
-              <Text style={[styles.limitSub, { color: theme.textSecondary }]}>
-                Max budget: {formatPKR(card.limit)}
-              </Text>
-            </View>
             <TouchableOpacity 
+              style={styles.detailsHeader} 
               onPress={() => {
                 if (card.isFrozen) return;
-                setIsEditingLimit(!isEditingLimit);
+                setShowDetails(!showDetails);
               }}
-              style={styles.editLimitBtn}
               disabled={card.isFrozen}
+              activeOpacity={0.7}
             >
-              <Text style={[styles.editLimitBtnText, { color: theme.primary }]}>
-                {isEditingLimit ? 'Cancel' : 'Edit'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {isEditingLimit && !card.isFrozen ? (
-            <View style={styles.customLimitRow}>
-              <View style={[styles.customLimitInputWrapper, { borderColor: theme.border }]}>
-                <TextInput
-                  style={[styles.customLimitInput, { color: theme.text }]}
-                  placeholder="Enter custom limit"
-                  placeholderTextColor={theme.textSecondary}
-                  keyboardType="numeric"
-                  value={customLimit}
-                  onChangeText={setCustomLimit}
-                />
+              <View style={styles.detailsHeaderLeft}>
+                <Ionicons name="eye-outline" size={20} color="#7C6FFF" />
+                <Text style={styles.detailsTitle}>View Card Details</Text>
               </View>
-              <TouchableOpacity 
-                style={[styles.customLimitSaveBtn, { backgroundColor: theme.primary }]}
-                onPress={handleCustomLimitSubmit}
-              >
-                <Text style={styles.customLimitSaveText}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            /* Fast Selector Chips */
-            <View style={styles.limitChips}>
-              {[10000, 25000, 50000, 100000].map((amt) => {
-                const isSelected = card.limit === amt;
-                return (
-                  <TouchableOpacity
-                    key={amt}
-                    style={[
-                      styles.limitChip,
-                      { borderColor: theme.border },
-                      isSelected && { backgroundColor: theme.primary, borderColor: theme.primary }
-                    ]}
-                    onPress={() => handleLimitChange(amt)}
-                    disabled={card.isFrozen}
-                  >
-                    <Text style={[
-                      styles.limitChipText,
-                      { color: theme.text },
-                      isSelected && { color: '#FFFFFF', fontWeight: '700' }
-                    ]}>
-                      {amt >= 1000 ? `${amt / 1000}K` : amt}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
+              <Ionicons 
+                name={showDetails ? 'chevron-up' : 'chevron-down'} 
+                size={20} 
+                color="rgba(255,255,255,0.4)" 
+              />
+            </TouchableOpacity>
 
-          {/* Progress Bar */}
-          <View style={styles.limitBarContainer}>
-            <View style={styles.limitBarLabelRow}>
-              <Text style={[styles.limitBarLabel, { color: theme.textSecondary }]}>
-                Spent: {formatPKR(card.spent || 0)}
-              </Text>
-              <Text style={[styles.limitBarLabel, { color: theme.textSecondary }]}>
-                Limit: {formatPKR(card.limit)}
-              </Text>
-            </View>
-            <View style={[styles.limitTrack, { backgroundColor: theme.border }]}>
-              <View style={[
-                styles.limitProgress, 
-                { 
-                  width: `${Math.min(100, (((card.spent || 0) / card.limit) * 100))}%`,
-                  backgroundColor: theme.accent 
-                }
-              ]} />
-            </View>
+            {showDetails && !card.isFrozen && (
+              <View style={styles.detailsExpanded}>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Card Number</Text>
+                  <Text style={styles.detailValue}>
+                    {card.number.replace(/(\d{4})/g, '$1 ').trim()}
+                  </Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Expiry Date</Text>
+                  <Text style={styles.detailValue}>{card.expiry}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>CVV Code</Text>
+                  <Text style={styles.detailValue}>{card.cvv}</Text>
+                </View>
+              </View>
+            )}
           </View>
-        </View>
 
-        {/* Card Spends Transaction History */}
-        <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 12, marginBottom: 8 }]}>
-          Card Purchases
-        </Text>
-        <View style={styles.cardTxsList}>
-          {cardTransactions.map(tx => (
-            <View 
-              key={tx.id} 
-              style={[
-                styles.cardTxRow, 
-                { backgroundColor: theme.card, borderColor: theme.border }
-              ]}
-            >
-              <View style={styles.cardTxLeft}>
-                <View style={[styles.cardTxIconCircle, { backgroundColor: `${theme.primary}15` }]}>
-                  <Ionicons name="cart-outline" size={18} color={theme.primary} />
+          {/* Control rows stacked */}
+          <View style={styles.controlsCard}>
+            <View style={styles.topHighlight} />
+
+            {/* Row 1: Freeze Card */}
+            <View style={styles.controlRow}>
+              <View style={styles.controlInfo}>
+                <View style={[styles.controlIconBg, { backgroundColor: 'rgba(0, 212, 255, 0.15)' }]}>
+                  <Ionicons name="snow-outline" size={20} color="#00D4FF" />
                 </View>
                 <View>
-                  <Text style={[styles.cardTxName, { color: theme.text }]} numberOfLines={1}>
-                    {tx.senderId === profile?.uid ? tx.receiverName : tx.senderName}
-                  </Text>
-                  <Text style={[styles.cardTxDate, { color: theme.textSecondary }]}>
-                    Card payment • Online
-                  </Text>
+                  <Text style={styles.controlTitle}>Freeze Card</Text>
+                  <Text style={styles.controlSub}>Temporarily disable this card</Text>
                 </View>
               </View>
-              <Text style={[styles.cardTxAmount, { color: theme.text }]}>
-                -{formatPKR(tx.amount)}
-              </Text>
+              
+              <CustomToggle
+                value={card.isFrozen}
+                onValueChange={toggleCardFreeze}
+                activeColor="#00D4FF"
+                trackActiveBg="rgba(0, 212, 255, 0.3)"
+              />
             </View>
-          ))}
-          {cardTransactions.length === 0 && (
-            <Text style={[styles.emptyCardTxsText, { color: theme.textSecondary }]}>
-              No card purchases recorded yet.
-            </Text>
-          )}
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+
+            <View style={styles.controlDivider} />
+
+            {/* Row 2: Online Payments */}
+            <View style={[styles.controlRow, card.isFrozen && { opacity: 0.5 }]}>
+              <View style={styles.controlInfo}>
+                <View style={[styles.controlIconBg, { backgroundColor: 'rgba(124, 111, 255, 0.15)' }]}>
+                  <Ionicons name="globe-outline" size={20} color="#7C6FFF" />
+                </View>
+                <View>
+                  <Text style={styles.controlTitle}>Online Transactions</Text>
+                  <Text style={styles.controlSub}>Allow e-commerce purchases</Text>
+                </View>
+              </View>
+              <CustomToggle
+                value={card.onlinePayments ?? true}
+                onValueChange={toggleCardOnlinePayments}
+                activeColor="#7C6FFF"
+                trackActiveBg="rgba(124, 111, 255, 0.3)"
+                disabled={card.isFrozen}
+              />
+            </View>
+          </View>
+
+          {/* Daily spending limits panel */}
+          <View style={[
+            styles.limitsCard,
+            card.isFrozen && { opacity: 0.5 }
+          ]}>
+            <View style={styles.topHighlight} />
+
+            <View style={styles.limitHeader}>
+              <View>
+                <Text style={styles.limitTitle}>Daily Spending Limit</Text>
+                <Text style={styles.limitSub}>
+                  Max budget: {formatPKR(card.limit)}
+                </Text>
+              </View>
+              <TouchableOpacity 
+                onPress={() => {
+                  if (card.isFrozen) return;
+                  setIsEditingLimit(!isEditingLimit);
+                }}
+                style={styles.editLimitBtn}
+                disabled={card.isFrozen}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.editLimitBtnText}>
+                  {isEditingLimit ? 'Cancel' : 'Edit'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {isEditingLimit && !card.isFrozen ? (
+              <View style={styles.customLimitRow}>
+                <View style={styles.customLimitInputWrapper}>
+                  <TextInput
+                    style={styles.customLimitInput}
+                    placeholder="Enter custom limit"
+                    placeholderTextColor="rgba(255, 255, 255, 0.4)"
+                    keyboardType="numeric"
+                    value={customLimit}
+                    onChangeText={setCustomLimit}
+                  />
+                </View>
+                <TouchableOpacity 
+                  style={styles.customLimitSaveBtn}
+                  onPress={handleCustomLimitSubmit}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.customLimitSaveText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              /* Chips */
+              <View style={styles.limitChips}>
+                {[10000, 25000, 50000, 100000].map((amt) => {
+                  const isSelected = card.limit === amt;
+                  return (
+                    <TouchableOpacity
+                      key={amt}
+                      style={[
+                        styles.limitChip,
+                        isSelected && styles.limitChipActive
+                      ]}
+                      onPress={() => handleLimitChange(amt)}
+                      disabled={card.isFrozen}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[
+                        styles.limitChipText,
+                        isSelected && { color: '#FFFFFF', fontWeight: '700' }
+                      ]}>
+                        {amt >= 1000 ? `${amt / 1000}K` : amt}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* Spent Limit progress bar */}
+            <View style={styles.limitBarContainer}>
+              <View style={styles.limitBarLabelRow}>
+                <Text style={styles.limitBarLabel}>
+                  Spent: {formatPKR(card.spent || 0)}
+                </Text>
+                <Text style={styles.limitBarLabel}>
+                  Limit: {formatPKR(card.limit)}
+                </Text>
+              </View>
+              
+              <View style={styles.limitTrack}>
+                <Animated.View style={[
+                  styles.limitProgressWrapper,
+                  {
+                    width: limitAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['0%', '100%']
+                    })
+                  }
+                ]}>
+                  <LinearGradient
+                    colors={['#7C6FFF', '#FF6BBA']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                </Animated.View>
+              </View>
+            </View>
+          </View>
+
+          {/* Card Purchases */}
+          <Text style={styles.sectionHeading}>
+            Card Purchases
+          </Text>
+          <View style={styles.cardTxsList}>
+            {cardTransactions.map(tx => (
+              <View 
+                key={tx.id} 
+                style={styles.cardTxRow}
+              >
+                <View style={styles.topHighlight} />
+                <View style={styles.cardTxLeft}>
+                  <View style={[styles.cardTxIconCircle, { backgroundColor: 'rgba(124, 111, 255, 0.15)' }]}>
+                    <Ionicons name="cart-outline" size={18} color="#7C6FFF" />
+                  </View>
+                  <View>
+                    <Text style={styles.cardTxName} numberOfLines={1}>
+                      {tx.senderId === profile?.uid ? tx.receiverName : tx.senderName}
+                    </Text>
+                    <Text style={styles.cardTxDate}>
+                      Card payment • Online
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.cardTxAmount}>
+                  -{formatPKR(tx.amount)}
+                </Text>
+              </View>
+            ))}
+            {cardTransactions.length === 0 && (
+              <Text style={styles.emptyCardTxsText}>
+                No card purchases recorded yet.
+              </Text>
+            )}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </GlobalBackground>
   );
 }
 
@@ -313,25 +387,40 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 110, // tabBar padding
   },
   title: {
-    fontSize: 24,
-    fontWeight: '800',
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#FFFFFF',
     marginBottom: 16,
-    letterSpacing: 0.5,
+    letterSpacing: -0.5,
   },
   helperText: {
     fontSize: 12,
     textAlign: 'center',
-    marginBottom: 16,
-    fontWeight: '500',
+    marginBottom: 20,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.4)',
   },
   detailsCard: {
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 16,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 20,
+    padding: 18,
     marginBottom: 16,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  topHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    zIndex: 2,
   },
   detailsHeader: {
     flexDirection: 'row',
@@ -345,10 +434,12 @@ const styles = StyleSheet.create({
   detailsTitle: {
     fontSize: 14,
     fontWeight: '700',
+    color: '#FFFFFF',
     marginLeft: 10,
   },
   detailsExpanded: {
     borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
     marginTop: 14,
     paddingTop: 14,
   },
@@ -360,23 +451,29 @@ const styles = StyleSheet.create({
   },
   detailLabel: {
     fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.5)',
   },
   detailValue: {
     fontSize: 13,
     fontWeight: '700',
-    fontFamily: 'Courier',
+    color: '#FFFFFF',
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    letterSpacing: 1,
   },
   controlsCard: {
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 16,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 20,
+    padding: 18,
     marginBottom: 16,
+    overflow: 'hidden',
+    position: 'relative',
   },
   controlRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginVertical: 4,
   },
   controlInfo: {
     flexDirection: 'row',
@@ -393,20 +490,27 @@ const styles = StyleSheet.create({
   controlTitle: {
     fontSize: 14,
     fontWeight: '700',
+    color: '#FFFFFF',
     marginBottom: 2,
   },
   controlSub: {
     fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.4)',
   },
   controlDivider: {
     height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     marginVertical: 12,
   },
   limitsCard: {
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 16,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 20,
+    padding: 18,
     marginBottom: 16,
+    overflow: 'hidden',
+    position: 'relative',
   },
   limitHeader: {
     flexDirection: 'row',
@@ -417,10 +521,12 @@ const styles = StyleSheet.create({
   limitTitle: {
     fontSize: 14,
     fontWeight: '700',
+    color: '#FFFFFF',
     marginBottom: 2,
   },
   limitSub: {
     fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.4)',
   },
   editLimitBtn: {
     paddingVertical: 4,
@@ -429,6 +535,7 @@ const styles = StyleSheet.create({
   editLimitBtnText: {
     fontSize: 13,
     fontWeight: '700',
+    color: '#7C6FFF',
   },
   customLimitRow: {
     flexDirection: 'row',
@@ -438,8 +545,10 @@ const styles = StyleSheet.create({
   customLimitInputWrapper: {
     flex: 1,
     height: 44,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     paddingHorizontal: 12,
     justifyContent: 'center',
     marginRight: 10,
@@ -447,10 +556,12 @@ const styles = StyleSheet.create({
   customLimitInput: {
     fontSize: 14,
     fontWeight: '600',
+    color: '#FFFFFF',
   },
   customLimitSaveBtn: {
     height: 44,
-    borderRadius: 10,
+    borderRadius: 12,
+    backgroundColor: '#7C6FFF',
     paddingHorizontal: 16,
     justifyContent: 'center',
     alignItems: 'center',
@@ -469,14 +580,21 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 38,
     borderRadius: 10,
-    borderWidth: 1,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
     justifyContent: 'center',
     alignItems: 'center',
     marginHorizontal: 4,
   },
+  limitChipActive: {
+    borderColor: '#7C6FFF',
+    backgroundColor: 'rgba(124, 111, 255, 0.1)',
+  },
   limitChipText: {
     fontSize: 12,
     fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.6)',
   },
   limitBarContainer: {
     marginTop: 6,
@@ -489,32 +607,41 @@ const styles = StyleSheet.create({
   limitBarLabel: {
     fontSize: 11,
     fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.5)',
   },
   limitTrack: {
     height: 8,
     borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     overflow: 'hidden',
+    position: 'relative',
   },
-  limitProgress: {
+  limitProgressWrapper: {
     height: '100%',
     borderRadius: 4,
+    overflow: 'hidden',
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
-  cardTxsList: {
-    marginTop: 4,
+  sectionHeading: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1.5,
+    color: 'rgba(255, 255, 255, 0.3)',
+    textTransform: 'uppercase',
+    marginTop: 24,
+    marginBottom: 12,
   },
   cardTxRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 14,
-    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    padding: 16,
+    borderRadius: 18,
     borderWidth: 1,
     marginVertical: 4,
+    overflow: 'hidden',
+    position: 'relative',
   },
   cardTxLeft: {
     flexDirection: 'row',
@@ -532,20 +659,39 @@ const styles = StyleSheet.create({
   },
   cardTxName: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
+    color: '#FFFFFF',
     marginBottom: 2,
   },
   cardTxDate: {
     fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.4)',
   },
   cardTxAmount: {
     fontSize: 14,
     fontWeight: '700',
+    color: '#FFFFFF',
   },
   emptyCardTxsText: {
     fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.4)',
     textAlign: 'center',
     paddingVertical: 16,
     fontStyle: 'italic',
+  },
+  // Custom switch styles
+  switchTrack: {
+    width: 38,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  switchThumb: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#FFFFFF',
   },
 });
