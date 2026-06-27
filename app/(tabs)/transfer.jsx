@@ -12,7 +12,8 @@ import {
   Dimensions,
   useColorScheme,
   Animated,
-  Platform
+  Platform,
+  FlatList
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -220,6 +221,24 @@ export default function TransferScreen() {
     return name?.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() || 'ZP';
   };
 
+  const renderUserItem = ({ item }) => (
+    <View style={[styles.userRow, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      <View style={[styles.avatar, { backgroundColor: theme.primaryLight }]}>
+        <Text style={styles.avatarText}>{getInitials(item.name)}</Text>
+      </View>
+      <View style={styles.userInfo}>
+        <Text style={[styles.userName, { color: theme.text }]}>{item.name}</Text>
+        <Text style={[styles.userEmail, { color: theme.textSecondary }]}>{item.email}</Text>
+      </View>
+      <TouchableOpacity
+        style={[styles.sendBtnSmall, { backgroundColor: theme.primary }]}
+        onPress={() => setSelectedUser(item)}
+      >
+        <Text style={[styles.sendBtnSmallText, { color: theme.background }]}>Send</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   const amountNum = parseFloat(amountStr);
   const isInsufficient = amountNum > (profile?.balance || 0);
 
@@ -251,67 +270,50 @@ export default function TransferScreen() {
           {isSearching ? (
             <ActivityIndicator size="small" color={theme.primary} style={{ marginTop: 24 }} />
           ) : (
-            <ScrollView 
+            <FlatList
               style={styles.resultsList}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              {/* Render Search Results */}
-              {searchQuery.trim().length > 0 && usersList.map((user) => (
-                <TouchableOpacity 
-                  key={user.uid}
-                  style={[styles.userRow, { backgroundColor: theme.card, borderColor: theme.border }]}
-                  onPress={() => setSelectedUser(user)}
-                >
-                  <View style={[styles.avatar, { backgroundColor: theme.primaryLight }]}>
-                    <Text style={styles.avatarText}>{getInitials(user.name)}</Text>
-                  </View>
-                  <View style={styles.userInfo}>
-                    <Text style={[styles.userName, { color: theme.text }]}>{user.name}</Text>
-                    <Text style={[styles.userPhone, { color: theme.textSecondary }]}>{user.phone}</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
-                </TouchableOpacity>
-              ))}
-
-              {/* Render Saved Contacts list if search query is empty */}
-              {searchQuery.trim().length === 0 && (
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.contactsSectionTitle, { color: theme.textSecondary }]}>Saved Contacts</Text>
-                  {contacts.map((contact) => (
-                    <TouchableOpacity 
-                      key={contact.uid}
-                      style={[styles.userRow, { backgroundColor: theme.card, borderColor: theme.border }]}
-                      onPress={() => setSelectedUser(contact)}
-                    >
-                      <View style={[styles.avatar, { backgroundColor: theme.primaryLight }]}>
-                        <Text style={styles.avatarText}>{getInitials(contact.name)}</Text>
-                      </View>
-                      <View style={styles.userInfo}>
-                        <Text style={[styles.userName, { color: theme.text }]}>{contact.name}</Text>
-                        <Text style={[styles.userPhone, { color: theme.textSecondary }]}>{contact.phone}</Text>
-                      </View>
-                      <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
-                    </TouchableOpacity>
-                  ))}
-                  {contacts.length === 0 && (
+              data={searchQuery.trim().length > 0 ? usersList : contacts}
+              keyExtractor={(item) => item.uid}
+              renderItem={renderUserItem}
+              ListHeaderComponent={() => {
+                if (searchQuery.trim().length > 0) return null;
+                return (
+                  <Text style={[styles.contactsSectionTitle, { color: theme.textSecondary }]}>
+                    Saved Contacts
+                  </Text>
+                );
+              }}
+              ListEmptyComponent={() => {
+                if (searchQuery.trim().length > 0) {
+                  return (
+                    <View style={styles.emptyContainer}>
+                      <Ionicons name="search-outline" size={40} color={theme.textSecondary} />
+                      <Text style={[styles.emptyText, { color: theme.text }]}>
+                        No users found.
+                      </Text>
+                      <Text style={[styles.emptySubtext, { color: theme.textSecondary }]}>
+                        Ask them to join ZenPay!
+                      </Text>
+                    </View>
+                  );
+                } else {
+                  return (
                     <View style={styles.emptyContainer}>
                       <Ionicons name="people-outline" size={40} color={theme.primaryLight} />
-                      <Text style={[styles.emptyText, { color: theme.text }]}>Who are we sending to?</Text>
-                      <Text style={[styles.emptySubtext, { color: theme.textSecondary }]}>Type their name or phone number above to select</Text>
+                      <Text style={[styles.emptyText, { color: theme.text }]}>
+                        No recent contacts.
+                      </Text>
+                      <Text style={[styles.emptySubtext, { color: theme.textSecondary }]}>
+                        Search to send money.
+                      </Text>
                     </View>
-                  )}
-                </View>
-              )}
-
-              {searchQuery.trim().length > 0 && usersList.length === 0 && (
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="search-outline" size={40} color={theme.textSecondary} />
-                  <Text style={[styles.emptyText, { color: theme.text }]}>No contacts found</Text>
-                  <Text style={[styles.emptySubtext, { color: theme.textSecondary }]}>Try entering another name or phone number</Text>
-                </View>
-              )}
-            </ScrollView>
+                  );
+                }
+              }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 20 }}
+            />
           )}
         </View>
       ) : (
@@ -853,5 +855,20 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     fontWeight: '700',
     fontSize: 13,
+  },
+  sendBtnSmall: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sendBtnSmallText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  userEmail: {
+    fontSize: 12,
+    marginTop: 2,
   }
 });

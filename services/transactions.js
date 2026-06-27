@@ -17,36 +17,34 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '../store/authStore';
 import { API_URL } from '../constants/api';
 
-const MOCK_USERS = [
-  { uid: 'mock-user-1', name: 'Tayyab Tanveer', email: 'tayyab@zenpay.com', phone: '+923001234567', balance: 12000 },
-  { uid: 'mock-user-2', name: 'Ayesha Khan', email: 'ayesha@zenpay.com', phone: '+923129876543', balance: 8000 },
-  { uid: 'mock-user-3', name: 'Muhammad Ali', email: 'ali@zenpay.com', phone: '+923335551234', balance: 15000 },
-  { uid: 'mock-user-4', name: 'Fatima Zahra', email: 'fatima@zenpay.com', phone: '+923456789012', balance: 5000 },
-];
-
-/**
- * Fetch all users from Firestore to search/select contacts (excluding current user)
- * @returns {Promise<Array>}
- */
 export const searchUsers = async (query = '', currentUserId = null) => {
   const uid = currentUserId || auth.currentUser?.uid || '';
   try {
-    const res = await fetch(
-      `${API_URL}/api/transfer/search-users?query=${query}&currentUserId=${uid}`
-    );
-    return await res.json();
+    const usersRef = collection(db, 'users');
+    const snapshot = await getDocs(usersRef);
+    const results = [];
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      if (
+        doc.id !== uid && // exclude self
+        (
+          data.name?.toLowerCase().includes(query.toLowerCase()) ||
+          data.email?.toLowerCase().includes(query.toLowerCase()) ||
+          data.phone?.includes(query)
+        )
+      ) {
+        results.push({
+          uid: doc.id,
+          name: data.name,
+          email: data.email,
+          phone: data.phone,
+        });
+      }
+    });
+    return results;
   } catch (error) {
-    console.warn("Search Users API request failed, using local mock fallback:", error.message);
-    const currentUser = auth.currentUser;
-    const finalUid = uid || currentUser?.uid || '';
-    if (!finalUid) return [];
-
-    return MOCK_USERS.filter(u => 
-      u.uid !== finalUid &&
-      (!query || 
-       u.name.toLowerCase().includes(query.toLowerCase()) || 
-       u.phone.includes(query))
-    );
+    console.error('Search error:', error);
+    return [];
   }
 };
 
@@ -68,28 +66,16 @@ export const getSavedContacts = async () => {
     const currentUser = auth.currentUser;
     if (!currentUser) return [];
 
-    // 1. Fetch saved contacts from backend
-    const contactsRes = await fetch(`${API_URL}/api/transfer/contacts?uid=${currentUser.uid}`);
-    const contactsList = await contactsRes.json();
+    const contactsRef = collection(db, 'contacts', currentUser.uid, 'contacts');
+    const querySnapshot = await getDocs(contactsRef);
     
-    if (contactsList && Array.isArray(contactsList) && contactsList.length > 0) {
-      await AsyncStorage.setItem(`zenpay_contacts_${currentUser.uid}`, JSON.stringify(contactsList));
-      return contactsList;
-    }
-
-    // 2. If no saved contacts, fetch all other registered users from backend to make testing and discovery easy
-    const usersRes = await fetch(`${API_URL}/api/transfer/search-users?query=&currentUserId=${currentUser.uid}`);
-    const usersList = await usersRes.json();
+    const contactsList = [];
+    querySnapshot.forEach((doc) => {
+      contactsList.push({ uid: doc.id, ...doc.data() });
+    });
     
-    if (usersList && Array.isArray(usersList) && usersList.length > 0) {
-      return usersList;
-    }
-
-    // 3. Fallback to AsyncStorage if offline/no response
-    const localContacts = await AsyncStorage.getItem(`zenpay_contacts_${currentUser.uid}`);
-    if (localContacts) return JSON.parse(localContacts);
-
-    return MOCK_USERS;
+    await AsyncStorage.setItem(`zenpay_contacts_${currentUser.uid}`, JSON.stringify(contactsList));
+    return contactsList;
   } catch (error) {
     console.warn("Get Saved Contacts failed, checking local AsyncStorage fallback: ", error.message);
     try {
@@ -101,7 +87,7 @@ export const getSavedContacts = async () => {
     } catch (e) {
       console.error(e);
     }
-    return MOCK_USERS;
+    return [];
   }
 };
 
