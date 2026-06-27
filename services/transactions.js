@@ -15,6 +15,7 @@ import {
 import { db, auth } from './firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '../store/authStore';
+import { API_URL } from '../constants/api';
 
 const MOCK_USERS = [
   { uid: 'mock-user-1', name: 'Tayyab Tanveer', email: 'tayyab@zenpay.com', phone: '+923001234567', balance: 12000 },
@@ -27,42 +28,35 @@ const MOCK_USERS = [
  * Fetch all users from Firestore to search/select contacts (excluding current user)
  * @returns {Promise<Array>}
  */
-export const searchUsers = async (searchTerm = '') => {
+export const searchUsers = async (query = '', currentUserId = null) => {
+  const uid = currentUserId || auth.currentUser?.uid || '';
   try {
-    const currentUser = auth.currentUser;
-    if (!currentUser) return [];
-
-    const usersRef = collection(db, 'users');
-    const q = query(usersRef, limit(50));
-    const querySnapshot = await getDocs(q);
-    
-    const results = [];
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      if (data.uid !== currentUser.uid) {
-        const matchesSearch = 
-          !searchTerm ||
-          data.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          data.phone.includes(searchTerm);
-        if (matchesSearch) {
-          results.push(data);
-        }
-      }
-    });
-    return results;
+    const res = await fetch(
+      `${API_URL}/api/transfer/search-users?query=${query}&currentUserId=${uid}`
+    );
+    return await res.json();
   } catch (error) {
-    console.warn("Search Users Firestore Error, returning mock users list: ", error.message);
+    console.warn("Search Users API request failed, using local mock fallback:", error.message);
     const currentUser = auth.currentUser;
-    if (!currentUser) return [];
+    const finalUid = uid || currentUser?.uid || '';
+    if (!finalUid) return [];
 
-    // Filter mock users if query fails
     return MOCK_USERS.filter(u => 
-      u.uid !== currentUser.uid &&
-      (!searchTerm || 
-       u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-       u.phone.includes(searchTerm))
+      u.uid !== finalUid &&
+      (!query || 
+       u.name.toLowerCase().includes(query.toLowerCase()) || 
+       u.phone.includes(query))
     );
   }
+};
+
+export const sendMoney = async (senderId, receiverId, amount, note) => {
+  const res = await fetch(`${API_URL}/api/transfer/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ senderId, receiverId, amount, note })
+  });
+  return await res.json();
 };
 
 /**
@@ -166,55 +160,25 @@ export const executeTransfer = async (receiverId, receiverName, amount, note) =>
   const newTxDocRef = doc(txColRef); // Generate auto ID
 
   try {
-    await runTransaction(db, async (transaction) => {
-      // 1. Get both user documents
-      const senderDoc = await transaction.get(senderDocRef);
-      const receiverDoc = await transaction.get(receiverDocRef);
-
-      if (!senderDoc.exists()) throw new Error("Sender profile does not exist.");
-      if (!receiverDoc.exists()) throw new Error("Receiver profile does not exist.");
-
-      const senderData = senderDoc.data();
-      const receiverData = receiverDoc.data();
-
-      // 2. Validate sender balance
-      if (senderData.balance < amount) {
-        throw new Error("Insufficient balance.");
-      }
-
-      // 3. Update balances
-      transaction.update(senderDocRef, { 
-        balance: senderData.balance - amount 
-      });
-      transaction.update(receiverDocRef, { 
-        balance: receiverData.balance + amount 
-      });
-
-      // 4. Create the transaction record
-      transaction.set(newTxDocRef, {
-        senderId: currentUser.uid,
-        receiverId,
-        senderName: senderData.name,
-        receiverName: receiverData.name,
-        amount,
-        type: 'debit',
-        category: 'transfer',
-        note,
-        status: 'success',
-        timestamp: serverTimestamp()
-      });
-    });
-
-    // 5. Save the receiver to sender's contact list for convenience
-    const receiverDoc = await getDoc(receiverDocRef);
-    if (receiverDoc.exists()) {
-      const recData = receiverDoc.data();
-      await saveContact(receiverId, recData.name, recData.phone, recData.avatar);
+    const res = await sendMoney(currentUser.uid, receiverId, amount, note);
+    if (!res.success) {
+      throw new Error(res.message || 'Transfer failed.');
     }
 
-    return newTxDocRef.id;
+    // Sync client-side authStore balance synchronously
+    const authStore = useAuthStore.getState();
+    if (authStore.profile) {
+      authStore.setState({
+        profile: {
+          ...authStore.profile,
+          balance: res.newBalance
+        }
+      });
+    }
+
+    return res.transactionId;
   } catch (error) {
-    console.warn("Firestore transfer transaction failed, falling back to local simulation: ", error.message);
+    console.warn("Backend P2P send Money request failed, falling back to local simulation:", error.message);
     
     // Local simulation fallback
     try {

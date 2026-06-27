@@ -4,6 +4,7 @@ require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
 const paymentRoutes = require('./routes/payment');
+const transferRoutes = require('./routes/transfer');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -21,6 +22,7 @@ app.use(express.json());
 // Mount authentication routers
 app.use('/api/auth', authRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/transfer', transferRoutes);
 
 // Health check route
 app.get('/', (req, res) => {

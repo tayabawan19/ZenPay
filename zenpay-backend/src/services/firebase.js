@@ -35,9 +35,15 @@ try {
 
 // Local in-memory mock Firestore database for testing when Firebase credentials are placeholders
 class MockDoc {
-  constructor(id, dataStore) {
+  constructor(id, dataStore, docPath, database) {
     this.id = id;
     this.dataStore = dataStore;
+    this.docPath = docPath;
+    this.database = database;
+  }
+
+  collection(subName) {
+    return new MockCollection(`${this.docPath}/${subName}`, this.database);
   }
 
   async get() {
@@ -86,6 +92,7 @@ class MockDoc {
 class MockCollection {
   constructor(name, database) {
     this.name = name;
+    this.database = database;
     if (!database[name]) {
       database[name] = new Map();
     }
@@ -96,7 +103,24 @@ class MockCollection {
     const docId = id !== undefined && id !== null
       ? id
       : 'mock_id_' + Math.random().toString(36).substring(2, 12);
-    return new MockDoc(docId, this.dataStore);
+    return new MockDoc(docId, this.dataStore, `${this.name}/${docId}`, this.database);
+  }
+
+  async get() {
+    const docs = [];
+    this.dataStore.forEach((value, key) => {
+      docs.push({
+        id: key,
+        exists: true,
+        data: () => value
+      });
+    });
+    return {
+      forEach(callback) {
+        docs.forEach(callback);
+      },
+      docs
+    };
   }
 }
 
@@ -140,15 +164,19 @@ class SafeFirestore {
 
   collection(name) {
     const self = this;
+    const realCollection = self.realDb.collection(name);
     return {
       doc(id) {
         const realDoc = id !== undefined && id !== null
-          ? self.realDb.collection(name).doc(id)
-          : self.realDb.collection(name).doc();
+          ? realCollection.doc(id)
+          : realCollection.doc();
         const docId = id !== undefined && id !== null ? id : realDoc.id;
         return {
           _realDoc: realDoc,
           id: docId,
+          collection(subName) {
+            return self.collection(`${name}/${docId}/${subName}`);
+          },
           async get() {
             if (self.useMock) {
               return self.mockDb.collection(name).doc(docId).get();
@@ -210,6 +238,26 @@ class SafeFirestore {
             }
           }
         };
+      },
+      async get() {
+        if (self.useMock) {
+          return self.mockDb.collection(name).get();
+        }
+        try {
+          return await realCollection.get();
+        } catch (err) {
+          if (err.message && (
+            err.message.includes('PERMISSION_DENIED') || 
+            err.message.includes('firestore.googleapis.com') || 
+            err.message.includes('SERVICE_DISABLED') ||
+            err.code === 7
+          )) {
+            console.warn("Firestore API seems disabled or denied in the cloud project. Falling back to local in-memory database for this session.");
+            self.useMock = true;
+            return self.mockDb.collection(name).get();
+          }
+          throw err;
+        }
       }
     };
   }

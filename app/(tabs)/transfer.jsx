@@ -11,7 +11,8 @@ import {
   Modal,
   Dimensions,
   useColorScheme,
-  Animated
+  Animated,
+  Platform
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,7 +33,7 @@ export default function TransferScreen() {
   const params = useLocalSearchParams();
 
   const { profile } = useAuth();
-  const { sendMoney } = useTransactions();
+  const { contacts, fetchContacts, sendMoney } = useTransactions();
 
   // Search/recipient state
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,11 +45,17 @@ export default function TransferScreen() {
   const [amountStr, setAmountStr] = useState('0');
   const [note, setNote] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [confirmSheetVisible, setConfirmSheetVisible] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
   // Success animations Animated Values
   const checkmarkScale = useRef(new Animated.Value(0)).current;
   const successTextOpacity = useRef(new Animated.Value(0)).current;
+
+  // Load saved contacts on mount
+  useEffect(() => {
+    fetchContacts();
+  }, []);
 
   // Check if a recipient was navigated to from another screen (like Quick Send)
   useEffect(() => {
@@ -57,7 +64,7 @@ export default function TransferScreen() {
     }
   }, [params.selectedUid]);
 
-  // Search users based on query
+  // Search users based on query (debounced 500ms)
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
       if (searchQuery.trim().length >= 1) {
@@ -65,7 +72,7 @@ export default function TransferScreen() {
       } else {
         setUsersList([]);
       }
-    }, 400);
+    }, 500);
 
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery]);
@@ -73,13 +80,20 @@ export default function TransferScreen() {
   const loadDirectRecipient = async (uid) => {
     setIsSearching(true);
     try {
-      const results = await searchUsers('');
+      // Pass empty search to get standard user pool
+      const results = await searchUsers('', profile?.uid);
       const recipient = results.find(u => u.uid === uid);
       if (recipient) {
         setSelectedUser(recipient);
+      } else {
+        // Fallback: search in saved contacts
+        const savedRec = contacts.find(c => c.uid === uid);
+        if (savedRec) {
+          setSelectedUser(savedRec);
+        }
       }
     } catch (err) {
-      console.error(err);
+      console.error("Direct recipient load error:", err);
     } finally {
       setIsSearching(false);
     }
@@ -88,7 +102,7 @@ export default function TransferScreen() {
   const performSearch = async (queryStr) => {
     setIsSearching(true);
     try {
-      const results = await searchUsers(queryStr);
+      const results = await searchUsers(queryStr, profile?.uid);
       setUsersList(results);
     } catch (err) {
       console.error(err);
@@ -143,7 +157,7 @@ export default function TransferScreen() {
     ]).start();
   };
 
-  // Local FCM notifications helper
+  // Local push notifications helper
   const sendMockLocalNotification = async (recipientName, amount) => {
     try {
       await Notifications.scheduleNotificationAsync({
@@ -166,21 +180,14 @@ export default function TransferScreen() {
       return;
     }
 
-    if (amountVal > profile.balance) {
-      Alert.alert(
-        'Insufficient Funds', 
-        `You need PKR ${(amountVal - profile.balance).toLocaleString()} more to execute this transfer.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Top Up Now', onPress: () => router.push('/(tabs)') }
-        ]
-      );
+    if (amountVal > (profile?.balance || 0)) {
+      Alert.alert('Insufficient Balance', 'You do not have enough funds to complete this transfer.');
       return;
     }
 
     setIsSending(true);
     try {
-      // Execute firestore atomic transfer and contacts creation
+      // Execute backend atomic P2P transfer and log in Firestore
       await sendMoney(selectedUser.uid, selectedUser.name, amountVal, note.trim());
       
       // Trigger local mock notification
@@ -190,7 +197,7 @@ export default function TransferScreen() {
       setShowSuccess(true);
       triggerSuccessAnimations();
 
-      // Automatically close and return to home after 2 seconds
+      // Automatically close and return to home after 2.5 seconds
       setTimeout(() => {
         setShowSuccess(false);
         setSelectedUser(null);
@@ -212,6 +219,9 @@ export default function TransferScreen() {
   const getInitials = (name) => {
     return name?.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() || 'ZP';
   };
+
+  const amountNum = parseFloat(amountStr);
+  const isInsufficient = amountNum > (profile?.balance || 0);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
@@ -246,7 +256,8 @@ export default function TransferScreen() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              {usersList.map((user) => (
+              {/* Render Search Results */}
+              {searchQuery.trim().length > 0 && usersList.map((user) => (
                 <TouchableOpacity 
                   key={user.uid}
                   style={[styles.userRow, { backgroundColor: theme.card, borderColor: theme.border }]}
@@ -263,19 +274,41 @@ export default function TransferScreen() {
                 </TouchableOpacity>
               ))}
 
+              {/* Render Saved Contacts list if search query is empty */}
+              {searchQuery.trim().length === 0 && (
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.contactsSectionTitle, { color: theme.textSecondary }]}>Saved Contacts</Text>
+                  {contacts.map((contact) => (
+                    <TouchableOpacity 
+                      key={contact.uid}
+                      style={[styles.userRow, { backgroundColor: theme.card, borderColor: theme.border }]}
+                      onPress={() => setSelectedUser(contact)}
+                    >
+                      <View style={[styles.avatar, { backgroundColor: theme.primaryLight }]}>
+                        <Text style={styles.avatarText}>{getInitials(contact.name)}</Text>
+                      </View>
+                      <View style={styles.userInfo}>
+                        <Text style={[styles.userName, { color: theme.text }]}>{contact.name}</Text>
+                        <Text style={[styles.userPhone, { color: theme.textSecondary }]}>{contact.phone}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+                    </TouchableOpacity>
+                  ))}
+                  {contacts.length === 0 && (
+                    <View style={styles.emptyContainer}>
+                      <Ionicons name="people-outline" size={40} color={theme.primaryLight} />
+                      <Text style={[styles.emptyText, { color: theme.text }]}>Who are we sending to?</Text>
+                      <Text style={[styles.emptySubtext, { color: theme.textSecondary }]}>Type their name or phone number above to select</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
               {searchQuery.trim().length > 0 && usersList.length === 0 && (
                 <View style={styles.emptyContainer}>
                   <Ionicons name="search-outline" size={40} color={theme.textSecondary} />
                   <Text style={[styles.emptyText, { color: theme.text }]}>No contacts found</Text>
                   <Text style={[styles.emptySubtext, { color: theme.textSecondary }]}>Try entering another name or phone number</Text>
-                </View>
-              )}
-
-              {searchQuery.trim().length === 0 && (
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="people-outline" size={40} color={theme.primaryLight} />
-                  <Text style={[styles.emptyText, { color: theme.text }]}>Who are we sending to?</Text>
-                  <Text style={[styles.emptySubtext, { color: theme.textSecondary }]}>Type their name or phone number above to select</Text>
                 </View>
               )}
             </ScrollView>
@@ -297,7 +330,7 @@ export default function TransferScreen() {
             <View style={{ width: 40 }} />
           </View>
 
-          {/* User profile row */}
+          {/* User profile card */}
           <View style={styles.recipientHeaderCard}>
             <View style={[styles.avatarLarge, { backgroundColor: theme.primary }]}>
               <Text style={styles.avatarLargeText}>{getInitials(selectedUser.name)}</Text>
@@ -311,15 +344,15 @@ export default function TransferScreen() {
 
           {/* Big Amount Text Screen */}
           <View style={styles.amountShowcase}>
-            <Text style={[styles.amountSymbol, { color: theme.text }]}>PKR</Text>
-            <Text style={[styles.amountDisplayVal, { color: theme.text }]} numberOfLines={1}>
+            <Text style={[styles.amountSymbol, { color: theme.primary, fontWeight: '700' }]}>PKR</Text>
+            <Text style={[styles.amountDisplayVal, { color: theme.primary }]} numberOfLines={1}>
               {parseFloat(amountStr).toLocaleString('en-US', {
                 minimumFractionDigits: amountStr.includes('.') ? amountStr.split('.')[1].length : 0
               })}
             </Text>
           </View>
 
-          {/* Optional Inline Note input */}
+          {/* Optional Note input */}
           <View style={[styles.noteWrapper, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <TextInput
               style={[styles.noteInput, { color: theme.text }]}
@@ -349,7 +382,7 @@ export default function TransferScreen() {
                     disabled={isSending}
                   >
                     {btn === 'delete' ? (
-                      <Ionicons name="backspace" size={24} color={theme.text} />
+                       <Ionicons name="backspace" size={24} color={theme.text} />
                     ) : (
                       <Text style={[styles.keypadKeyText, { color: theme.text }]}>{btn}</Text>
                     )}
@@ -359,24 +392,87 @@ export default function TransferScreen() {
             ))}
           </View>
 
+          {/* Insufficient Balance warning display */}
+          {isInsufficient && (
+            <Text style={styles.insufficientText}>Insufficient balance</Text>
+          )}
+
           {/* Send money full-width button */}
           <TouchableOpacity
             style={[
               styles.sendBtn, 
               { backgroundColor: theme.primary },
-              isSending && { opacity: 0.8 }
+              (isSending || amountNum <= 0 || isInsufficient) && { opacity: 0.5 }
             ]}
-            onPress={handleSendMoney}
-            disabled={isSending || parseFloat(amountStr) <= 0}
+            onPress={() => setConfirmSheetVisible(true)}
+            disabled={isSending || amountNum <= 0 || isInsufficient}
           >
             {isSending ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
+              <ActivityIndicator color={theme.background} size="small" />
             ) : (
-              <Text style={styles.sendBtnText}>Send Money</Text>
+              <Text style={[styles.sendBtnText, { color: theme.background }]}>Send Money</Text>
             )}
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Confirmation Bottom Sheet */}
+      <Modal
+        visible={confirmSheetVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setConfirmSheetVisible(false)}
+      >
+        <View style={styles.confirmOverlay}>
+          <TouchableOpacity 
+            style={styles.confirmDismiss} 
+            activeOpacity={1} 
+            onPress={() => setConfirmSheetVisible(false)} 
+          />
+          <View style={[styles.confirmSheetContent, { backgroundColor: theme.backgroundCard, borderTopColor: theme.border }]}>
+            <View style={styles.confirmHeader}>
+              <Text style={[styles.confirmTitle, { color: theme.textPrimary }]}>Confirm Transfer</Text>
+            </View>
+
+            <Text style={[styles.confirmMessage, { color: theme.textSecondary }]}>
+              Are you sure you want to send:
+            </Text>
+            
+            <Text style={[styles.confirmAmountText, { color: theme.primary }]}>
+              {formatPKR(amountNum)}
+            </Text>
+
+            <Text style={[styles.confirmToText, { color: theme.textPrimary }]}>
+              to <Text style={{ fontWeight: '800' }}>{selectedUser?.name}</Text>?
+            </Text>
+
+            {note.trim() ? (
+              <Text style={[styles.confirmNoteText, { color: theme.textSecondary }]}>
+                Note: "{note}"
+              </Text>
+            ) : null}
+
+            <View style={styles.confirmActionsRow}>
+              <TouchableOpacity
+                style={[styles.confirmCancelBtn, { borderColor: theme.border }]}
+                onPress={() => setConfirmSheetVisible(false)}
+              >
+                <Text style={[styles.confirmCancelText, { color: theme.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.confirmSubmitBtn, { backgroundColor: theme.primary }]}
+                onPress={() => {
+                  setConfirmSheetVisible(false);
+                  handleSendMoney();
+                }}
+              >
+                <Text style={[styles.confirmSubmitText, { color: theme.background }]}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* 3. Success Modal overlay using Animated API */}
       <Modal
@@ -401,10 +497,10 @@ export default function TransferScreen() {
           ]}>
             <Text style={[styles.successTitle, { color: theme.text }]}>Transfer Successful!</Text>
             <Text style={[styles.successSub, { color: theme.textSecondary }]}>
-              Sent to {selectedUser?.name}
+              PKR {amountNum.toLocaleString()} sent to {selectedUser?.name} successfully!
             </Text>
             <Text style={[styles.successAmount, { color: theme.primary }]}>
-              {formatPKR(parseFloat(amountStr))}
+              {formatPKR(amountNum)}
             </Text>
           </Animated.View>
         </View>
@@ -498,134 +594,132 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     marginTop: 16,
-    marginBottom: 6,
   },
   emptySubtext: {
     fontSize: 13,
     textAlign: 'center',
+    marginTop: 8,
     lineHeight: 18,
   },
   paymentContainer: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingBottom: 20,
     justifyContent: 'space-between',
+    paddingBottom: Platform.OS === 'ios' ? 20 : 10,
   },
   paymentHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 10,
+    paddingTop: 10,
   },
   backButton: {
     width: 40,
     height: 40,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 14,
+    borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
   },
   paymentHeaderTitle: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   recipientHeaderCard: {
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: 16,
   },
   avatarLarge: {
-    width: 60,
-    height: 60,
-    borderRadius: 20,
+    width: 64,
+    height: 64,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 5,
+    shadowRadius: 6,
     elevation: 3,
   },
   avatarLargeText: {
     color: '#FFFFFF',
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
   },
   recipientName: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  recipientPhone: {
-    fontSize: 12,
+    fontSize: 18,
+    fontWeight: '800',
     marginBottom: 4,
   },
+  recipientPhone: {
+    fontSize: 13,
+    marginBottom: 8,
+  },
   availableBalance: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
   },
   amountShowcase: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 14,
-    paddingHorizontal: 20,
+    marginVertical: 12,
+    paddingHorizontal: 10,
   },
   amountSymbol: {
     fontSize: 20,
-    fontWeight: '700',
-    marginRight: 6,
+    marginRight: 8,
   },
   amountDisplayVal: {
     fontSize: 48,
-    fontWeight: '800',
+    fontWeight: '900',
+    letterSpacing: -1,
   },
   noteWrapper: {
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 16,
+    borderWidth: 1.5,
+    borderRadius: 14,
     height: 50,
+    paddingHorizontal: 16,
     justifyContent: 'center',
     marginBottom: 12,
   },
   noteInput: {
     fontSize: 14,
+    fontWeight: '600',
   },
   keypadWrapper: {
-    flex: 1,
-    justifyContent: 'center',
-    maxHeight: 280,
+    marginBottom: 10,
   },
   keypadRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginVertical: 8,
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
   keypadKey: {
-    width: width / 4,
+    flex: 1,
     height: 52,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 26,
+    marginHorizontal: 8,
   },
   keypadKeyText: {
     fontSize: 24,
-    fontWeight: '600',
-    marginRight: 0,
+    fontWeight: '700',
   },
   sendBtn: {
     height: 56,
-    borderRadius: 16,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#7B5EA7',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
   },
   sendBtnText: {
-    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -646,23 +740,118 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.2,
-    shadowRadius: 12,
+    shadowRadius: 16,
     elevation: 8,
   },
   successTextContainer: {
     alignItems: 'center',
   },
   successTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    marginBottom: 8,
+    fontSize: 26,
+    fontWeight: '900',
+    marginBottom: 10,
   },
   successSub: {
-    fontSize: 15,
-    marginBottom: 16,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+    paddingHorizontal: 16,
   },
   successAmount: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '800',
   },
+  // New Styles
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'flex-end',
+  },
+  confirmDismiss: {
+    flex: 1,
+  },
+  confirmSheetContent: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderTopWidth: 1,
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === 'ios' ? 44 : 24,
+  },
+  confirmHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  confirmMessage: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  confirmAmountText: {
+    fontSize: 36,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  confirmToText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  confirmNoteText: {
+    fontSize: 13,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginBottom: 24,
+  },
+  confirmActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  confirmCancelBtn: {
+    flex: 1,
+    height: 56,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  confirmCancelText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  confirmSubmitBtn: {
+    flex: 1,
+    height: 56,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  confirmSubmitText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  contactsSectionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    marginBottom: 14,
+    marginTop: 10,
+  },
+  insufficientText: {
+    color: '#FF4A4A',
+    textAlign: 'center',
+    marginBottom: 12,
+    fontWeight: '700',
+    fontSize: 13,
+  }
 });

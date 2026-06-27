@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { loginUser, registerUser, logoutUser, sendPasswordReset } from '../services/auth';
 import { auth, db, onAuthStateChanged, signOut } from '../services/firebase';
 import { doc, onSnapshot, updateDoc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { useTransactionStore } from './transactionStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const useAuthStore = create((set, get) => ({
@@ -31,6 +32,8 @@ export const useAuthStore = create((set, get) => ({
 
       if (firebaseUser) {
         set({ user: firebaseUser });
+        // Start real-time transaction listener
+        useTransactionStore.getState().startTransactionListener(firebaseUser.uid);
         
         // Setup real-time listener for current user's profile
         const userDocRef = doc(db, 'users', firebaseUser.uid);
@@ -118,6 +121,9 @@ export const useAuthStore = create((set, get) => ({
       
       // Start real-time profile listener
       get().startUserListener(user.uid);
+      
+      // Start real-time transaction listener
+      useTransactionStore.getState().startTransactionListener(user.uid);
       
       return user;
     } catch (error) {
@@ -288,6 +294,9 @@ export const useAuthStore = create((set, get) => ({
   logout: async () => {
     set({ isLoading: true });
     try {
+      // Clear real-time transaction query listener
+      useTransactionStore.getState().stopTransactionListener();
+
       const existingUnsub = get().unsubProfileListener;
       if (existingUnsub) {
         existingUnsub();
