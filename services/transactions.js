@@ -68,19 +68,30 @@ export const getSavedContacts = async () => {
     const currentUser = auth.currentUser;
     if (!currentUser) return [];
 
-    const contactsRef = collection(db, 'contacts', currentUser.uid, 'contacts');
-    const querySnapshot = await getDocs(contactsRef);
+    // 1. Fetch saved contacts from backend
+    const contactsRes = await fetch(`${API_URL}/api/transfer/contacts?uid=${currentUser.uid}`);
+    const contactsList = await contactsRes.json();
     
-    const contactsList = [];
-    querySnapshot.forEach((doc) => {
-      contactsList.push({ uid: doc.id, ...doc.data() });
-    });
+    if (contactsList && Array.isArray(contactsList) && contactsList.length > 0) {
+      await AsyncStorage.setItem(`zenpay_contacts_${currentUser.uid}`, JSON.stringify(contactsList));
+      return contactsList;
+    }
+
+    // 2. If no saved contacts, fetch all other registered users from backend to make testing and discovery easy
+    const usersRes = await fetch(`${API_URL}/api/transfer/search-users?query=&currentUserId=${currentUser.uid}`);
+    const usersList = await usersRes.json();
     
-    // Save to cache
-    await AsyncStorage.setItem(`zenpay_contacts_${currentUser.uid}`, JSON.stringify(contactsList));
-    return contactsList;
+    if (usersList && Array.isArray(usersList) && usersList.length > 0) {
+      return usersList;
+    }
+
+    // 3. Fallback to AsyncStorage if offline/no response
+    const localContacts = await AsyncStorage.getItem(`zenpay_contacts_${currentUser.uid}`);
+    if (localContacts) return JSON.parse(localContacts);
+
+    return MOCK_USERS;
   } catch (error) {
-    console.warn("Get Saved Contacts Firestore Error, checking AsyncStorage: ", error.message);
+    console.warn("Get Saved Contacts failed, checking local AsyncStorage fallback: ", error.message);
     try {
       const currentUser = auth.currentUser;
       if (currentUser) {
@@ -90,7 +101,7 @@ export const getSavedContacts = async () => {
     } catch (e) {
       console.error(e);
     }
-    return [];
+    return MOCK_USERS;
   }
 };
 

@@ -85,6 +85,28 @@ router.get('/search-users', async (req, res) => {
 });
 
 /**
+ * Endpoint: GET /api/transfer/contacts?uid=xxx
+ */
+router.get('/contacts', async (req, res) => {
+  const { uid } = req.query;
+  if (!uid) {
+    return res.status(400).json({ success: false, message: 'uid is required.' });
+  }
+
+  try {
+    const contactsSnap = await db.collection('contacts').doc(uid).collection('contacts').get();
+    const results = [];
+    contactsSnap.forEach((doc) => {
+      results.push(doc.data());
+    });
+    return res.status(200).json(results);
+  } catch (error) {
+    console.error('Fetch Contacts Error: ', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
  * Endpoint: POST /api/transfer/send
  * Body: { senderId, receiverId, amount, note }
  */
