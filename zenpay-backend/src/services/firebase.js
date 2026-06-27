@@ -93,7 +93,10 @@ class MockCollection {
   }
 
   doc(id) {
-    return new MockDoc(id, this.dataStore);
+    const docId = id !== undefined && id !== null
+      ? id
+      : 'mock_id_' + Math.random().toString(36).substring(2, 12);
+    return new MockDoc(docId, this.dataStore);
   }
 }
 
@@ -139,12 +142,16 @@ class SafeFirestore {
     const self = this;
     return {
       doc(id) {
-        const realDoc = self.realDb.collection(name).doc(id);
+        const realDoc = id !== undefined && id !== null
+          ? self.realDb.collection(name).doc(id)
+          : self.realDb.collection(name).doc();
+        const docId = id !== undefined && id !== null ? id : realDoc.id;
         return {
           _realDoc: realDoc,
+          id: docId,
           async get() {
             if (self.useMock) {
-              return self.mockDb.collection(name).doc(id).get();
+              return self.mockDb.collection(name).doc(docId).get();
             }
             try {
               return await realDoc.get();
@@ -157,14 +164,14 @@ class SafeFirestore {
               )) {
                 console.warn("Firestore API seems disabled or denied in the cloud project. Falling back to local in-memory database for this session.");
                 self.useMock = true;
-                return self.mockDb.collection(name).doc(id).get();
+                return self.mockDb.collection(name).doc(docId).get();
               }
               throw err;
             }
           },
           async set(data) {
             if (self.useMock) {
-              return self.mockDb.collection(name).doc(id).set(data);
+              return self.mockDb.collection(name).doc(docId).set(data);
             }
             try {
               return await realDoc.set(data);
@@ -177,14 +184,14 @@ class SafeFirestore {
               )) {
                 console.warn("Firestore API seems disabled or denied in the cloud project. Falling back to local in-memory database for this session.");
                 self.useMock = true;
-                return self.mockDb.collection(name).doc(id).set(data);
+                return self.mockDb.collection(name).doc(docId).set(data);
               }
               throw err;
             }
           },
           async update(data) {
             if (self.useMock) {
-              return self.mockDb.collection(name).doc(id).update(data);
+              return self.mockDb.collection(name).doc(docId).update(data);
             }
             try {
               return await realDoc.update(data);
@@ -197,7 +204,7 @@ class SafeFirestore {
               )) {
                 console.warn("Firestore API seems disabled or denied in the cloud project. Falling back to local in-memory database for this session.");
                 self.useMock = true;
-                return self.mockDb.collection(name).doc(id).update(data);
+                return self.mockDb.collection(name).doc(docId).update(data);
               }
               throw err;
             }
