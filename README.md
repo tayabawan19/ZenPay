@@ -1,8 +1,7 @@
-╔════════════════════════════════════════════════════════╗
-║                                                        ║
-║   💳  Z E N P A Y  —  Premium Fintech Mobile App       ║
-║                                                        ║
-╚════════════════════════════════════════════════════════╝
+
+                                                       
+  💳  Z E N P A Y  —  Premium Fintech Mobile App       
+
 
 ZenPay is a production-grade, full-stack fintech mobile 
 application built with React Native & Expo, designed to 
