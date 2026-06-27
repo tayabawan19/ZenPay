@@ -235,7 +235,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginBottom: 16,
     letterSpacing: 0.5,
-    color: theme.textPrimary,
+    color: colors.textPrimary,
   },
   periodTabs: {
     flexDirection: 'row',
@@ -262,14 +262,14 @@ const styles = StyleSheet.create({
   },
   spentLabel: {
     fontSize: 12,
-    color: theme.textSecondary,
+    color: colors.textSecondary,
     fontWeight: '600',
     marginBottom: 6,
   },
   spentAmount: {
     fontSize: 28,
     fontWeight: '800',
-    color: theme.primary,
+    color: colors.primary,
     marginBottom: 8,
   },
   spentFooter: {
@@ -277,7 +277,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   spentFooterText: {
-    color: theme.textSecondary,
+    color: colors.textSecondary,
     fontSize: 12,
     fontWeight: '600',
     marginLeft: 6,
@@ -292,20 +292,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     marginBottom: 10,
-    color: theme.textPrimary,
+    color: colors.textPrimary,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
-    color: theme.textPrimary,
+    color: colors.textPrimary,
   },
   insightCard: {
     borderWidth: 1.5,
     borderRadius: 20,
     padding: 16,
     marginVertical: 16,
-    backgroundColor: `${theme.primary}10`,
+    backgroundColor: `${colors.primary}10`,
   },
   insightHeader: {
     flexDirection: 'row',
@@ -315,13 +315,13 @@ const styles = StyleSheet.create({
   insightTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: theme.primary,
+    color: colors.primary,
     marginLeft: 8,
   },
   insightText: {
     fontSize: 13,
     lineHeight: 18,
-    color: theme.textPrimary,
+    color: colors.textPrimary,
   },
   topSpendRow: {
     flexDirection: 'row',
@@ -349,11 +349,11 @@ const styles = StyleSheet.create({
   topSpendName: {
     fontSize: 14,
     fontWeight: '600',
-    color: theme.textPrimary,
+    color: colors.textPrimary,
   },
   topSpendAmount: {
     fontSize: 14,
     fontWeight: '700',
-    color: theme.textPrimary,
+    color: colors.textPrimary,
   },
 });
