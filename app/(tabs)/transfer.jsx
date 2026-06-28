@@ -13,7 +13,9 @@ import {
   Platform,
   FlatList,
   Easing,
-  Pressable
+  Pressable,
+  RefreshControl,
+  ScrollView
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +30,10 @@ import { fetchAllUsers, searchUsers } from '../../services/transactions';
 import { colors } from '../../constants/colors';
 import { formatPKR } from '../../utils/format';
 import GlobalBackground from '../../components/GlobalBackground';
+import SkeletonBox from '../../components/SkeletonBox';
+import EmptyState from '../../components/EmptyState';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -76,31 +82,73 @@ const KeypadKey = ({ val, onPress }) => {
   );
 };
 
+const hashPin = (pin) => {
+  return pin.split('').reduce((acc, char) =>
+    acc + char.charCodeAt(0), 0
+  ).toString() + pin.length;
+};
+
+const TransferScreenSkeleton = () => {
+  return (
+    <GlobalBackground>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={{ padding: 20 }}>
+          <Text style={[styles.title, { marginBottom: 16 }]}>Send Money</Text>
+          {/* Search bar */}
+          <SkeletonBox width="100%" height={56} borderRadius={18} style={{ marginBottom: 20 }} />
+
+          {/* 6 user rows */}
+          <View style={{ gap: 12 }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.02)', padding: 16, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <SkeletonBox width={48} height={48} borderRadius={14} style={{ marginRight: 12 }} />
+                  <View style={{ gap: 6 }}>
+                    <SkeletonBox width={130} height={13} borderRadius={3} />
+                    <SkeletonBox width={100} height={10} borderRadius={3} />
+                  </View>
+                </View>
+                <SkeletonBox width={60} height={32} borderRadius={10} />
+              </View>
+            ))}
+          </View>
+        </View>
+      </SafeAreaView>
+    </GlobalBackground>
+  );
+};
+
 export default function TransferScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
 
   const { profile } = useAuth();
-  const { sendMoney } = useTransactions();
+  const { sendMoney, fetchContacts } = useTransactions();
 
   // Search/recipient state
   const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
-  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
 
   // Keypad & transfer states
   const [amountStr, setAmountStr] = useState('0');
   const [note, setNote] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [confirmSheetVisible, setConfirmSheetVisible] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [pinConfirmVisible, setPinConfirmVisible] = useState(false);
+  const [showSetupPinModal, setShowSetupPinModal] = useState(false);
+  const [confirmPinStr, setConfirmPinStr] = useState('');
+  const [confirmPinAttempts, setConfirmPinAttempts] = useState(0);
+  const [confirmPinError, setConfirmPinError] = useState('');
+  const searchInputRef = useRef(null);
 
   // Animated values for transitions
   const slideAnim = useRef(new Animated.Value(screenWidth)).current; // For slide-in Amount screen
-  const confirmSheetY = useRef(new Animated.Value(400)).current;
   const opacityAnim = useRef(new Animated.Value(1)).current;
 
   // Success animations Animated Values
@@ -113,14 +161,13 @@ export default function TransferScreen() {
   useEffect(() => {
     const loadAllUsers = async () => {
       if (!profile?.uid) return;
-      setIsLoadingUsers(true);
       try {
         const result = await fetchAllUsers(profile.uid);
         setUsers(result);
       } catch (err) {
         console.error("Load users error:", err);
       } finally {
-        setIsLoadingUsers(false);
+        setLoading(false);
       }
     };
     loadAllUsers();
@@ -258,6 +305,101 @@ export default function TransferScreen() {
         useNativeDriver: false,
       }).start();
     });
+  };
+
+  const verifyBeforeTransfer = async () => {
+    const amountVal = parseFloat(amountStr);
+    if (isNaN(amountVal) || amountVal <= 0) {
+      Alert.alert('Invalid Amount', 'Please enter an amount to transfer.');
+      return;
+    }
+
+    if (amountVal > (profile?.balance || 0)) {
+      Alert.alert('Insufficient Balance', 'You do not have enough funds to complete this transfer.');
+      return;
+    }
+
+    // Check if PIN set up
+    const storedPin = await AsyncStorage.getItem('zenpay_pin');
+    if (!storedPin) {
+      setShowSetupPinModal(true);
+      return;
+    }
+
+    const hasHardware = await LocalAuthentication.hasHardwareAsync();
+    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+    if (hasHardware && isEnrolled) {
+      try {
+        const result = await LocalAuthentication.authenticateAsync({
+          promptMessage: `Confirm sending PKR ${amountVal.toLocaleString()} to ${selectedUser?.name}`,
+          fallbackLabel: 'Use PIN',
+          cancelLabel: 'Cancel',
+        });
+        if (result.success) {
+          handleSendMoney();
+        } else if (result.error === 'user_fallback') {
+          showPinConfirmModal();
+        }
+      } catch (err) {
+        console.warn("Biometrics verification failed:", err);
+        showPinConfirmModal();
+      }
+    } else {
+      showPinConfirmModal();
+    }
+  };
+
+  const showPinConfirmModal = () => {
+    setConfirmPinStr('');
+    setConfirmPinError('');
+    setConfirmPinAttempts(0);
+    setPinConfirmVisible(true);
+  };
+
+  const handleConfirmPinPress = async (digit) => {
+    if (confirmPinStr.length >= 6) return;
+    const newPin = confirmPinStr + digit;
+    setConfirmPinStr(newPin);
+
+    if (newPin.length === 6) {
+      setTimeout(async () => {
+        try {
+          const storedPin = await AsyncStorage.getItem('zenpay_pin');
+          const hashedEntered = hashPin(newPin);
+          if (storedPin === hashedEntered) {
+            setPinConfirmVisible(false);
+            handleSendMoney();
+          } else {
+            setConfirmPinStr('');
+            const nextAttempts = confirmPinAttempts + 1;
+            setConfirmPinAttempts(nextAttempts);
+            if (nextAttempts >= 3) {
+              setPinConfirmVisible(false);
+              Alert.alert("Transfer cancelled", "Too many incorrect PIN attempts.");
+            } else {
+              setConfirmPinError("Incorrect PIN");
+            }
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }, 100);
+    }
+  };
+
+  const onRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const result = await fetchAllUsers(profile.uid);
+      setUsers(result);
+      await fetchContacts();
+    } catch (err) {
+      console.error("Transfer screen refresh failed: ", err);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const sendMockLocalNotification = async (recipientName, amount) => {
@@ -409,6 +551,10 @@ export default function TransferScreen() {
     }).start(() => setConfirmSheetVisible(false));
   };
 
+  if (loading) {
+    return <TransferScreenSkeleton />;
+  }
+
   return (
     <GlobalBackground>
       <SafeAreaView style={styles.container} edges={['top']}>
@@ -425,6 +571,7 @@ export default function TransferScreen() {
               ]}>
                 <Ionicons name="search-outline" size={20} color="#7C6FFF" style={{ marginRight: 10 }} />
                 <TextInput
+                  ref={searchInputRef}
                   style={styles.searchInput}
                   placeholder="Search by name, email or phone"
                   placeholderTextColor="rgba(255, 255, 255, 0.3)"
@@ -442,13 +589,7 @@ export default function TransferScreen() {
               </View>
             </View>
 
-            {isLoadingUsers ? (
-              <View style={styles.resultsList}>
-                {renderSkeletonRow(1)}
-                {renderSkeletonRow(2)}
-                {renderSkeletonRow(3)}
-              </View>
-            ) : isSearching ? (
+            {isSearching ? (
               <ActivityIndicator size="small" color="#7C6FFF" style={{ marginTop: 24 }} />
             ) : (
               <FlatList
@@ -456,13 +597,35 @@ export default function TransferScreen() {
                 data={users}
                 keyExtractor={(item) => item.uid}
                 renderItem={renderUserItem}
-                ListEmptyComponent={() => (
-                  <View style={styles.emptyContainer}>
-                    <Ionicons name="people-outline" size={40} color="rgba(255, 255, 255, 0.3)" />
-                    <Text style={styles.emptyText}>No other users found</Text>
-                    <Text style={styles.emptySubtext}>Ask friends to join ZenPay!</Text>
-                  </View>
-                )}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                    tintColor="#7C6FFF"
+                    colors={['#7C6FFF']}
+                  />
+                }
+                ListEmptyComponent={() => {
+                  if (searchQuery.trim().length > 0) {
+                    return (
+                      <EmptyState
+                        icon="people-outline"
+                        title="No Users Found"
+                        subtitle="We couldn't find anyone matching your search. Ask your friends to join ZenPay!"
+                      />
+                    );
+                  } else {
+                    return (
+                      <EmptyState
+                        icon="person-add-outline"
+                        title="No Quick Contacts"
+                        subtitle="Users you send money to will appear here for quick access."
+                        action={() => searchInputRef.current?.focus()}
+                        actionLabel="Search Users"
+                      />
+                    );
+                  }
+                }}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={{ paddingBottom: 110 }}
@@ -475,195 +638,267 @@ export default function TransferScreen() {
             styles.paymentContainer,
             { transform: [{ translateX: slideAnim }] }
           ]}>
-            {/* Header */}
-            <View style={styles.paymentHeader}>
-              <TouchableOpacity 
-                onPress={() => setSelectedUser(null)} 
-                style={styles.backButton}
-                disabled={isSending}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
-              </TouchableOpacity>
-              <Text style={styles.paymentHeaderTitle}>Enter Amount</Text>
-              <View style={{ width: 40 }} />
-            </View>
-
-            {/* Recipient card with change contact button */}
-            <View style={styles.recipientHeaderCard}>
-              {/* Glass highlight */}
-              <View style={styles.topHighlight} />
-
-              <View style={styles.avatarLarge}>
-                <Text style={styles.avatarLargeText}>{getInitials(selectedUser.name)}</Text>
-              </View>
-              <View style={{ flex: 1, marginLeft: 16 }}>
-                <Text style={styles.sendingToLabel}>SENDING TO</Text>
-                <Text style={styles.recipientName}>{selectedUser.name}</Text>
-                <Text style={styles.recipientPhone}>{selectedUser.email || selectedUser.phone}</Text>
-              </View>
-
-              <TouchableOpacity 
-                onPress={() => setSelectedUser(null)}
-                style={styles.btnChangeContact}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="close" size={20} color="rgba(255, 255, 255, 0.4)" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Big Showcase display */}
-            <View style={styles.amountShowcase}>
-              <Text style={styles.amountSymbol}>PKR</Text>
-              <Text style={styles.amountDisplayVal} numberOfLines={1}>
-                {parseFloat(amountStr).toLocaleString('en-US', {
-                  minimumFractionDigits: amountStr.includes('.') ? amountStr.split('.')[1].length : 0
-                })}
-              </Text>
-            </View>
-
-            {/* Available Balance indicator */}
-            <View style={styles.balanceIndicatorRow}>
-              {isInsufficient ? (
-                <Text style={styles.insufficientText}>Insufficient balance ⚠️</Text>
-              ) : (
-                <Text style={styles.availableBalance}>
-                  Available: {formatPKR(profile?.balance)}
-                </Text>
-              )}
-            </View>
-
-            {/* Note field */}
-            <View style={styles.noteWrapper}>
-              <TextInput
-                style={styles.noteInput}
-                placeholder="Add a note (optional)"
-                placeholderTextColor="rgba(255, 255, 255, 0.3)"
-                value={note}
-                onChangeText={setNote}
-                maxLength={40}
-                editable={!isSending}
-              />
-            </View>
-
-            {/* Custom Grid Numpad */}
-            <View style={styles.keypadWrapper}>
-              {[
-                ['1', '2', '3'],
-                ['4', '5', '6'],
-                ['7', '8', '9'],
-                ['.', '0', 'delete']
-              ].map((row, rowIndex) => (
-                <View key={rowIndex} style={styles.keypadRow}>
-                  {row.map((btn) => (
-                    <KeypadKey
-                      key={btn}
-                      val={btn}
-                      onPress={handleKeyPress}
-                    />
-                  ))}
-                </View>
-              ))}
-            </View>
-
-            {/* Send Money gradient CTA */}
-            <TouchableOpacity
-              style={styles.sendBtn}
-              onPress={showConfirmSheet}
-              disabled={isSending || amountNum <= 0 || isInsufficient}
-              activeOpacity={0.8}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.paymentScrollContent}
+              keyboardShouldPersistTaps="handled"
             >
-              <LinearGradient
-                colors={['#7C6FFF', '#FF6BBA']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[
-                  styles.gradientBtn,
-                  (isSending || amountNum <= 0 || isInsufficient) && { opacity: 0.4 }
-                ]}
-              >
-                {isSending ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
+              {/* Header */}
+              <View style={styles.paymentHeader}>
+                <TouchableOpacity 
+                  onPress={() => setSelectedUser(null)} 
+                  style={styles.backButton}
+                  disabled={isSending}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+                <Text style={styles.paymentHeaderTitle}>Enter Amount</Text>
+                <View style={{ width: 40 }} />
+              </View>
+
+              {/* Recipient card with change contact button */}
+              <View style={styles.recipientHeaderCard}>
+                {/* Glass highlight */}
+                <View style={styles.topHighlight} />
+
+                <View style={styles.avatarLarge}>
+                  <Text style={styles.avatarLargeText}>{getInitials(selectedUser.name)}</Text>
+                </View>
+                <View style={{ flex: 1, marginLeft: 16 }}>
+                  <Text style={styles.sendingToLabel}>SENDING TO</Text>
+                  <Text style={styles.recipientName}>{selectedUser.name}</Text>
+                  <Text style={styles.recipientPhone}>{selectedUser.email || selectedUser.phone}</Text>
+                </View>
+
+                <TouchableOpacity 
+                  onPress={() => setSelectedUser(null)}
+                  style={styles.btnChangeContact}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close" size={20} color="rgba(255, 255, 255, 0.4)" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Big Showcase display */}
+              <View style={styles.amountShowcase}>
+                <Text style={styles.amountSymbol}>PKR</Text>
+                <Text style={styles.amountDisplayVal} numberOfLines={1}>
+                  {parseFloat(amountStr).toLocaleString('en-US', {
+                    minimumFractionDigits: amountStr.includes('.') ? amountStr.split('.')[1].length : 0
+                  })}
+                </Text>
+              </View>
+
+              {/* Available Balance indicator */}
+              <View style={styles.balanceIndicatorRow}>
+                {isInsufficient ? (
+                  <Text style={styles.insufficientText}>Insufficient balance ⚠️</Text>
                 ) : (
-                  <Text style={styles.sendBtnText}>Send Money</Text>
+                  <Text style={styles.availableBalance}>
+                    Available: {formatPKR(profile?.balance)}
+                  </Text>
                 )}
-              </LinearGradient>
-            </TouchableOpacity>
+              </View>
+
+              {/* Note field */}
+              <View style={styles.noteWrapper}>
+                <TextInput
+                  style={styles.noteInput}
+                  placeholder="Add a note (optional)"
+                  placeholderTextColor="rgba(255, 255, 255, 0.3)"
+                  value={note}
+                  onChangeText={setNote}
+                  maxLength={40}
+                  editable={!isSending}
+                />
+              </View>
+
+              {/* Custom Grid Numpad */}
+              <View style={styles.keypadWrapper}>
+                {[
+                  ['1', '2', '3'],
+                  ['4', '5', '6'],
+                  ['7', '8', '9'],
+                  ['.', '0', 'delete']
+                ].map((row, rowIndex) => (
+                  <View key={rowIndex} style={styles.keypadRow}>
+                    {row.map((btn) => (
+                      <KeypadKey
+                        key={btn}
+                        val={btn}
+                        onPress={handleKeyPress}
+                      />
+                    ))}
+                  </View>
+                ))}
+              </View>
+
+              {/* Send Money gradient CTA */}
+              <TouchableOpacity
+                style={styles.sendBtn}
+                onPress={verifyBeforeTransfer}
+                disabled={isSending || amountNum <= 0 || isInsufficient}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#7C6FFF', '#FF6BBA']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={[
+                    styles.gradientBtn,
+                    (isSending || amountNum <= 0 || isInsufficient) && { opacity: 0.4 }
+                  ]}
+                >
+                  {isSending ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text style={styles.sendBtnText}>Send Money</Text>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </ScrollView>
           </Animated.View>
         )}
 
-        {/* Confirmation Sheet */}
-        {confirmSheetVisible && (
+        {/* PIN Confirmation Modal */}
+        {pinConfirmVisible && (
           <Modal
-            visible={confirmSheetVisible}
-            animationType="none"
+            visible={pinConfirmVisible}
+            animationType="slide"
             transparent={true}
-            onRequestClose={closeConfirmSheet}
+            onRequestClose={() => setPinConfirmVisible(false)}
           >
-            <View style={styles.confirmOverlay}>
-              <TouchableOpacity 
-                style={styles.confirmDismiss} 
-                activeOpacity={1} 
-                onPress={closeConfirmSheet} 
-              />
-              <Animated.View style={[
-                styles.confirmSheetContainer,
-                { transform: [{ translateY: confirmSheetY }] }
-              ]}>
-                <BlurView intensity={30} tint="dark" style={styles.confirmSheetContent}>
-                  <View style={styles.topHighlight} />
+            <View style={styles.pinConfirmOverlay}>
+              <View style={styles.pinConfirmSheet}>
+                <View style={styles.topHighlight} />
+                
+                <Text style={styles.pinConfirmTitle}>Confirm Transfer</Text>
 
-                  <View style={styles.confirmHeader}>
-                    <Text style={styles.confirmTitle}>Confirm Transfer</Text>
+                {/* Transfer summary */}
+                <View style={styles.pinConfirmSummary}>
+                  <View style={styles.avatarLarge}>
+                    <Text style={styles.avatarLargeText}>{getInitials(selectedUser?.name)}</Text>
                   </View>
+                  <Text style={styles.pinConfirmName}>{selectedUser?.name}</Text>
+                  <Text style={styles.pinConfirmAmount}>PKR {amountNum.toLocaleString()}</Text>
+                </View>
 
-                  <Text style={styles.confirmMessage}>
-                    Are you sure you want to send:
-                  </Text>
-                  
-                  <Text style={styles.confirmAmountText}>
-                    {formatPKR(amountNum)}
-                  </Text>
+                <Text style={styles.pinConfirmLabel}>Enter PIN to confirm</Text>
 
-                  <Text style={styles.confirmToText}>
-                    to <Text style={{ fontWeight: '800' }}>{selectedUser?.name}</Text>
-                  </Text>
+                {/* 6 Dots PIN indicators */}
+                <View style={styles.dotsContainer}>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <View 
+                      key={i} 
+                      style={[
+                        styles.dot, 
+                        confirmPinStr.length > i ? styles.dotFilled : styles.dotEmpty
+                      ]} 
+                    />
+                  ))}
+                </View>
 
-                  {note.trim() ? (
-                    <Text style={styles.confirmNoteText}>
-                      Note: "{note}"
-                    </Text>
-                  ) : null}
+                {confirmPinError ? (
+                  <Text style={styles.confirmPinErrorText}>{confirmPinError}</Text>
+                ) : null}
 
-                  <View style={styles.confirmActionsRow}>
-                    <TouchableOpacity
-                      style={styles.confirmCancelBtn}
-                      onPress={closeConfirmSheet}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.confirmCancelText}>Cancel</Text>
-                    </TouchableOpacity>
+                {/* Mini Numpad */}
+                <View style={styles.miniKeypadWrapper}>
+                  {[
+                    ['1', '2', '3'],
+                    ['4', '5', '6'],
+                    ['7', '8', '9'],
+                    ['cancel_numpad', '0', 'delete_numpad']
+                  ].map((row, rowIndex) => (
+                    <View key={rowIndex} style={styles.miniKeypadRow}>
+                      {row.map((btn) => {
+                        if (btn === 'cancel_numpad') {
+                          return (
+                            <TouchableOpacity 
+                              key={btn}
+                              style={styles.miniKeypadKeyGhost}
+                              onPress={() => setPinConfirmVisible(false)}
+                            >
+                              <Text style={styles.miniKeypadCancelText}>Cancel</Text>
+                            </TouchableOpacity>
+                          );
+                        }
+                        if (btn === 'delete_numpad') {
+                          return (
+                            <TouchableOpacity 
+                              key={btn}
+                              style={styles.miniKeypadKeyGhost}
+                              onPress={() => setConfirmPinStr(prev => prev.slice(0, -1))}
+                            >
+                              <Ionicons name="backspace-outline" size={20} color="#FFFFFF" />
+                            </TouchableOpacity>
+                          );
+                        }
+                        return (
+                          <TouchableOpacity 
+                            key={btn}
+                            style={styles.miniKeypadKey}
+                            onPress={() => handleConfirmPinPress(btn)}
+                          >
+                            <Text style={styles.miniKeypadKeyText}>{btn}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  ))}
+                </View>
 
-                    <TouchableOpacity
-                      style={styles.confirmSubmitBtn}
-                      onPress={() => {
-                        closeConfirmSheet();
-                        handleSendMoney();
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <LinearGradient
-                        colors={['#7C6FFF', '#FF6BBA']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.gradientBtn}
-                      >
-                        <Text style={styles.confirmSubmitText}>Confirm</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </View>
-                </BlurView>
-              </Animated.View>
+                <TouchableOpacity 
+                  style={styles.pinConfirmCancelBtn} 
+                  onPress={() => setPinConfirmVisible(false)}
+                >
+                  <Text style={styles.pinConfirmCancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        )}
+
+        {/* Setup PIN Modal */}
+        {showSetupPinModal && (
+          <Modal
+            visible={showSetupPinModal}
+            animationType="slide"
+            transparent={true}
+            onRequestClose={() => setShowSetupPinModal(false)}
+          >
+            <View style={styles.pinConfirmOverlay}>
+              <View style={styles.pinConfirmSheet}>
+                <View style={styles.topHighlight} />
+                <Text style={styles.pinConfirmTitle}>Security Setup Required</Text>
+                <Ionicons name="shield-checkmark" size={60} color="#7C6FFF" style={{ alignSelf: 'center', marginVertical: 20 }} />
+                <Text style={styles.setupPinLabel}>
+                  Set up a PIN first for security
+                </Text>
+                <TouchableOpacity 
+                  style={styles.setupPinBtn} 
+                  onPress={() => {
+                    setShowSetupPinModal(false);
+                    router.push('/pin');
+                  }}
+                >
+                  <LinearGradient
+                    colors={['#7C6FFF', '#FF6BBA']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.gradientBtn}
+                  >
+                    <Text style={styles.setupPinBtnText}>Set Up PIN</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.pinConfirmCancelBtn, { marginTop: 12 }]} 
+                  onPress={() => setShowSetupPinModal(false)}
+                >
+                  <Text style={styles.pinConfirmCancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </Modal>
         )}
@@ -881,9 +1116,12 @@ const styles = StyleSheet.create({
   },
   paymentContainer: {
     flex: 1,
+  },
+  paymentScrollContent: {
+    flexGrow: 1,
     paddingHorizontal: 20,
     justifyContent: 'space-between',
-    paddingBottom: Platform.OS === 'ios' ? 20 : 10,
+    paddingBottom: 110, // Avoid overlapping CustomTabBar
   },
   paymentHeader: {
     flexDirection: 'row',
@@ -1171,5 +1409,140 @@ const styles = StyleSheet.create({
   confettiSquare: {
     position: 'absolute',
     borderRadius: 1,
+  },
+  pinConfirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'flex-end',
+  },
+  pinConfirmSheet: {
+    backgroundColor: 'rgba(8, 8, 16, 0.98)',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    paddingBottom: 40,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  pinConfirmTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  pinConfirmSummary: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  pinConfirmName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  pinConfirmAmount: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#FFB020',
+  },
+  pinConfirmLabel: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.4)',
+    textAlign: 'center',
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  confirmPinErrorText: {
+    color: '#FF4D6A',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  miniKeypadWrapper: {
+    marginTop: 16,
+    width: '100%',
+  },
+  miniKeypadRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    marginVertical: 4,
+  },
+  miniKeypadKey: {
+    width: 68,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  miniKeypadKeyGhost: {
+    width: 68,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  miniKeypadKeyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  miniKeypadCancelText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.4)',
+  },
+  pinConfirmCancelBtn: {
+    marginTop: 16,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  pinConfirmCancelBtnText: {
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  setupPinLabel: {
+    fontSize: 16,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginVertical: 12,
+  },
+  setupPinBtn: {
+    height: 52,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginTop: 16,
+  },
+  setupPinBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 52,
+  },
+  dot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    marginHorizontal: 10,
+  },
+  dotEmpty: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  dotFilled: {
+    backgroundColor: '#7C6FFF',
+  },
+  dotsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 10,
   },
 });

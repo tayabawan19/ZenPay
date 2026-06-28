@@ -20,6 +20,29 @@ import { useAuthStore } from '../store/authStore';
 import { API_URL } from '../constants/api';
 
 export const fetchAllUsers = async (currentUserId) => {
+  const isMockAuth = auth.config?.apiKey?.includes('Placeholder') || !auth.config?.apiKey || auth._isMock;
+  if (isMockAuth) {
+    try {
+      const mockUsersStr = await AsyncStorage.getItem('zenpay_mock_auth_users');
+      const mockUsers = mockUsersStr ? JSON.parse(mockUsersStr) : {};
+      const users = [];
+      Object.keys(mockUsers).forEach((email) => {
+        const u = mockUsers[email];
+        if (u.uid !== currentUserId) {
+          users.push({
+            uid: u.uid,
+            name: u.name || 'Unknown',
+            email: u.email || '',
+            phone: u.phone || '',
+          });
+        }
+      });
+      return users;
+    } catch (e) {
+      console.warn("Failed to fetch mock users from AsyncStorage: ", e);
+    }
+  }
+
   try {
     const usersRef = collection(db, 'users');
     const snapshot = await getDocs(usersRef);
@@ -38,7 +61,26 @@ export const fetchAllUsers = async (currentUserId) => {
     return users;
   } catch (error) {
     console.error('fetchAllUsers error:', error);
-    return [];
+    // Fallback to local AsyncStorage mock users if Firestore failed
+    try {
+      const mockUsersStr = await AsyncStorage.getItem('zenpay_mock_auth_users');
+      const mockUsers = mockUsersStr ? JSON.parse(mockUsersStr) : {};
+      const users = [];
+      Object.keys(mockUsers).forEach((email) => {
+        const u = mockUsers[email];
+        if (u.uid !== currentUserId) {
+          users.push({
+            uid: u.uid,
+            name: u.name || 'Unknown',
+            email: u.email || '',
+            phone: u.phone || '',
+          });
+        }
+      });
+      return users;
+    } catch (e) {
+      return [];
+    }
   }
 };
 
@@ -420,6 +462,17 @@ export const executeTopUp = async (amount) => {
 export const getTransactionsHistory = async (uid) => {
   const currentUid = uid || auth.currentUser?.uid;
   if (!currentUid) return [];
+
+  const isMockAuth = auth.config?.apiKey?.includes('Placeholder') || !auth.config?.apiKey || auth._isMock;
+  if (isMockAuth) {
+    try {
+      const localTxStr = await AsyncStorage.getItem(`zenpay_transactions_${currentUid}`);
+      if (localTxStr) return JSON.parse(localTxStr);
+    } catch (e) {
+      console.warn("Mock transactions history read failed:", e);
+    }
+  }
+
   try {
     const q = query(
       collection(db, 'transactions'),
@@ -438,14 +491,20 @@ export const getTransactionsHistory = async (uid) => {
       getDocs(q2)
     ]);
     const txns = [];
-    snap1.forEach(d => txns.push(d.data()));
-    snap2.forEach(d => txns.push(d.data()));
+    snap1.forEach(d => txns.push({ id: d.id, ...d.data() }));
+    snap2.forEach(d => txns.push({ id: d.id, ...d.data() }));
     txns.sort((a,b) => 
       (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)
     );
     return txns;
   } catch (error) {
-    console.error('getTransactionsHistory error:', error);
+    console.error('getTransactionsHistory error, trying AsyncStorage fallback:', error);
+    try {
+      const localTxStr = await AsyncStorage.getItem(`zenpay_transactions_${currentUid}`);
+      if (localTxStr) return JSON.parse(localTxStr);
+    } catch (e) {
+      console.error(e);
+    }
     return [];
   }
 };

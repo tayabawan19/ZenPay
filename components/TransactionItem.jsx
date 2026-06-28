@@ -1,10 +1,10 @@
 import React, { useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, Animated } from 'react-native';
+import { StyleSheet, Text, View, Animated, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { formatPKR, formatTxDate } from '../utils/format';
 
-export const TransactionItem = ({ item, currentUserId }) => {
+export const TransactionItem = ({ item, currentUserId, onPress }) => {
   // Determine if it's a debit or credit relative to current user
   const isDebit = item.senderId === currentUserId;
   const isTopUp = item.category === 'topup';
@@ -81,15 +81,16 @@ export const TransactionItem = ({ item, currentUserId }) => {
   }
 
   return (
-    <Animated.View style={[
-      styles.container, 
-      { 
-        opacity,
-        transform: [{ translateY }]
-      }
-    ]}>
-      {/* Top highlight simulated glass border */}
-      <View style={styles.topHighlight} />
+    <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+      <Animated.View style={[
+        styles.container, 
+        { 
+          opacity,
+          transform: [{ translateY }]
+        }
+      ]}>
+        {/* Top highlight simulated glass border */}
+        <View style={styles.topHighlight} />
 
       <View style={styles.leftSection}>
         <View style={[styles.avatar, { backgroundColor: iconBgColor }]}>
@@ -127,6 +128,7 @@ export const TransactionItem = ({ item, currentUserId }) => {
         </View>
       </View>
     </Animated.View>
+  </TouchableOpacity>
   );
 };
 

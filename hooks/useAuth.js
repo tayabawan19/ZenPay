@@ -10,6 +10,8 @@ export const useAuth = () => {
     error: store.error,
     isBiometricsEnabled: store.isBiometricsEnabled,
     isNotificationsEnabled: store.isNotificationsEnabled,
+    isPinVerified: store.isPinVerified,
+    setPinVerified: store.setPinVerified,
     
     // Auth actions
     login: store.login,
@@ -20,6 +22,7 @@ export const useAuth = () => {
     createUserDocument: store.createUserDocument,
     startUserListener: store.startUserListener,
     resetPassword: store.resetPassword,
+    fetchProfile: store.fetchProfile,
     
     // Card control actions
     toggleCardFreeze: store.toggleCardFreeze,

@@ -18,14 +18,62 @@ import { useAuth } from '../../hooks/useAuth';
 import StatCard from '../../components/StatCard';
 import GlobalBackground from '../../components/GlobalBackground';
 import { formatPKR } from '../../utils/format';
+import { useRouter } from 'expo-router';
+import SkeletonBox from '../../components/SkeletonBox';
+import EmptyState from '../../components/EmptyState';
+import { RefreshControl } from 'react-native';
 
 const { width: screenWidth } = Dimensions.get('window');
 
+const AnalyticsScreenSkeleton = () => {
+  return (
+    <GlobalBackground>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={{ padding: 20 }}>
+          <Text style={[styles.title, { marginBottom: 16 }]}>Analytics</Text>
+
+          {/* Period selector */}
+          <SkeletonBox width="100%" height={44} borderRadius={14} style={{ marginBottom: 24 }} />
+
+          {/* Summary cards: 3 boxes row */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24, gap: 10 }}>
+            <SkeletonBox width="30%" height={80} borderRadius={20} />
+            <SkeletonBox width="30%" height={80} borderRadius={20} />
+            <SkeletonBox width="30%" height={80} borderRadius={20} />
+          </View>
+
+          {/* Chart area */}
+          <SkeletonBox width="100%" height={200} borderRadius={24} style={{ marginBottom: 24 }} />
+
+          {/* Category list title */}
+          <SkeletonBox width={120} height={12} borderRadius={3} style={{ marginBottom: 16 }} />
+
+          {/* Category list: 5 rows */}
+          <View style={{ gap: 12 }}>
+            <SkeletonBox width="100%" height={52} borderRadius={16} />
+            <SkeletonBox width="100%" height={52} borderRadius={16} />
+            <SkeletonBox width="100%" height={52} borderRadius={16} />
+            <SkeletonBox width="100%" height={52} borderRadius={16} />
+            <SkeletonBox width="100%" height={52} borderRadius={16} />
+          </View>
+        </View>
+      </SafeAreaView>
+    </GlobalBackground>
+  );
+};
+
 export default function AnalyticsScreen() {
+  const router = useRouter();
   const { profile } = useAuth();
-  const { transactions } = useTransactions();
+  const { transactions, fetchTransactions } = useTransactions();
 
   const [period, setPeriod] = useState('week'); // 'week' | 'month' | 'year'
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    fetchTransactions().finally(() => setLoading(false));
+  }, []);
 
   // Animated sliding tab indicator
   const selectX = useRef(new Animated.Value(0)).current;
@@ -210,11 +258,50 @@ export default function AnalyticsScreen() {
 
   const topSpends = getTopSpends();
 
+  const onRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await fetchTransactions();
+    } catch (e) {
+      console.warn("Analytics refresh failed:", e);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  if (loading) {
+    return <AnalyticsScreenSkeleton />;
+  }
+
   return (
     <GlobalBackground>
       <SafeAreaView style={styles.container} edges={['top']}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <ScrollView 
+          showsVerticalScrollIndicator={false} 
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#7C6FFF"
+              colors={['#7C6FFF']}
+              progressBackgroundColor="rgba(255,255,255,0.05)"
+            />
+          }
+        >
           <Text style={styles.title}>Analytics</Text>
+
+          {transactions.length === 0 ? (
+            <EmptyState
+              icon="bar-chart-outline"
+              title="No Spending Data"
+              subtitle="Your spending analytics will appear here after your first transaction."
+              action={() => router.push('/(tabs)/transfer')}
+              actionLabel="Make a Transfer"
+            />
+          ) : (
+            <>
 
           {/* Period Selector Tabs */}
           <View style={styles.periodTabs}>
@@ -408,6 +495,8 @@ export default function AnalyticsScreen() {
                 </View>
               ))}
             </View>
+          )}
+            </>
           )}
         </ScrollView>
       </SafeAreaView>

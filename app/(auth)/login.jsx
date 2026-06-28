@@ -22,6 +22,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../hooks/useAuth';
 import { colors } from '../../constants/colors';
 import GlobalBackground from '../../components/GlobalBackground';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { height: screenHeight } = Dimensions.get('window');
 
@@ -33,6 +34,22 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [validationError, setValidationError] = useState('');
+
+  // Check if we logged out due to inactivity
+  useEffect(() => {
+    const checkTimeoutLogout = async () => {
+      try {
+        const val = await AsyncStorage.getItem('zenpay_timeout_logout');
+        if (val === 'true') {
+          Alert.alert('Session Timeout', 'You were logged out due to inactivity');
+          await AsyncStorage.removeItem('zenpay_timeout_logout');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    checkTimeoutLogout();
+  }, []);
 
   // Input focus states for styling
   const [emailFocused, setEmailFocused] = useState(false);

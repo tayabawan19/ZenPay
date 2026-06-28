@@ -26,6 +26,7 @@ import TransactionItem from '../../components/TransactionItem';
 import TopUpSheet from '../../components/TopUpSheet';
 import GlobalBackground from '../../components/GlobalBackground';
 import { formatPKR } from '../../utils/format';
+import SkeletonBox from '../../components/SkeletonBox';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -75,9 +76,84 @@ const QuickActionButton = ({ iconName, label, color, initialBg, flashBg, onPress
   );
 };
 
+const HomeScreenSkeleton = () => {
+  return (
+    <GlobalBackground>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.scrollContent}>
+          {/* Header Row */}
+          <View style={[styles.header, { marginBottom: 20 }]}>
+            <SkeletonBox width={46} height={46} borderRadius={23} />
+            <SkeletonBox width={100} height={24} borderRadius={6} />
+            <SkeletonBox width={40} height={40} borderRadius={12} />
+          </View>
+
+          {/* Greeting Section */}
+          <View style={[styles.greetingSection, { gap: 6, marginBottom: 20 }]}>
+            <SkeletonBox width={120} height={14} borderRadius={4} />
+            <SkeletonBox width={80} height={20} borderRadius={4} />
+          </View>
+
+          {/* Balance card skeleton */}
+          <SkeletonBox width="100%" height={180} borderRadius={24} style={{ marginBottom: 24 }} />
+
+          {/* Quick Actions Title */}
+          <View style={{ marginBottom: 12 }}>
+            <SkeletonBox width={100} height={12} borderRadius={3} />
+          </View>
+
+          {/* Quick Actions Row */}
+          <View style={[styles.actionsRow, { marginBottom: 24 }]}>
+            <SkeletonBox width={62} height={62} borderRadius={18} />
+            <SkeletonBox width={62} height={62} borderRadius={18} />
+            <SkeletonBox width={62} height={62} borderRadius={18} />
+            <SkeletonBox width={62} height={62} borderRadius={18} />
+          </View>
+
+          {/* Quick Send Header */}
+          <View style={[styles.sectionHeaderRow, { marginBottom: 12 }]}>
+            <SkeletonBox width={80} height={12} borderRadius={3} />
+            <SkeletonBox width={50} height={12} borderRadius={3} />
+          </View>
+
+          {/* Quick Send list skeleton */}
+          <View style={[styles.actionsRow, { justifyContent: 'flex-start', gap: 14, marginBottom: 24 }]}>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <SkeletonBox key={i} width={56} height={56} borderRadius={18} />
+            ))}
+          </View>
+
+          {/* Recent Transactions Header */}
+          <View style={[styles.sectionHeaderRow, { marginBottom: 12 }]}>
+            <SkeletonBox width={140} height={12} borderRadius={3} />
+            <SkeletonBox width={50} height={12} borderRadius={3} />
+          </View>
+
+          {/* Transaction items skeleton */}
+          <View style={{ gap: 8 }}>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.02)', padding: 16, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <SkeletonBox width={46} height={46} borderRadius={14} style={{ marginRight: 12 }} />
+                  <View style={{ gap: 6 }}>
+                    <SkeletonBox width={120} height={12} borderRadius={3} />
+                    <SkeletonBox width={80} height={10} borderRadius={3} />
+                  </View>
+                </View>
+                <SkeletonBox width={60} height={12} borderRadius={3} />
+              </View>
+            ))}
+          </View>
+
+        </View>
+      </SafeAreaView>
+    </GlobalBackground>
+  );
+};
+
 export default function HomeScreen() {
   const router = useRouter();
-  const { profile, isLoading: isAuthLoading } = useAuth();
+  const { profile, isLoading: isAuthLoading, fetchProfile } = useAuth();
   const {
     transactions,
     contacts,
@@ -86,6 +162,7 @@ export default function HomeScreen() {
     fetchContacts
   } = useTransactions();
 
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [receiveModalVisible, setReceiveModalVisible] = useState(false);
   const [topUpModalVisible, setTopUpModalVisible] = useState(false);
@@ -93,6 +170,13 @@ export default function HomeScreen() {
   // Animations
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const badgeScale = useRef(new Animated.Value(1.0)).current;
+
+  useEffect(() => {
+    // Only set loading to false after both initial auth and transactions/contacts are fetched
+    if (!isAuthLoading && !isTxLoading && profile?.uid) {
+      setLoading(false);
+    }
+  }, [isAuthLoading, isTxLoading, profile?.uid]);
 
   useEffect(() => {
     refreshData();
@@ -122,12 +206,19 @@ export default function HomeScreen() {
   });
 
   const refreshData = async () => {
+    if (refreshing) return;
     setRefreshing(true);
-    await Promise.all([
-      fetchTransactions(),
-      fetchContacts()
-    ]);
-    setRefreshing(false);
+    try {
+      await Promise.all([
+        profile?.uid ? fetchProfile(profile.uid) : Promise.resolve(),
+        fetchTransactions(),
+        fetchContacts()
+      ]);
+    } catch (e) {
+      console.warn("Home screen refresh failed: ", e);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const getGreeting = () => {
@@ -164,6 +255,10 @@ export default function HomeScreen() {
     .filter(tx => (tx.receiverId === uid || tx.category === 'topup') && tx.status === 'success')
     .reduce((sum, tx) => sum + tx.amount, 0);
 
+  if (loading) {
+    return <HomeScreenSkeleton />;
+  }
+
   return (
     <GlobalBackground>
       <SafeAreaView style={styles.container} edges={['top']}>
@@ -175,6 +270,8 @@ export default function HomeScreen() {
               refreshing={refreshing}
               onRefresh={refreshData}
               tintColor="#7C6FFF"
+              colors={['#7C6FFF']}
+              progressBackgroundColor="rgba(255,255,255,0.05)"
             />
           }
         >
@@ -194,7 +291,7 @@ export default function HomeScreen() {
             {/* Notification Bell with Pulsing Dot */}
             <TouchableOpacity
               style={styles.bellButton}
-              onPress={() => router.push('/(tabs)/profile')}
+              onPress={() => router.push('/notifications')}
               activeOpacity={0.7}
             >
               <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
@@ -276,7 +373,7 @@ export default function HomeScreen() {
               <QuickSendContact
                 key={contact.uid}
                 name={contact.name}
-                onPress={() => router.push({ pathname: '/(tabs)/transfer', params: { selectedUid: contact.uid } })}
+                onPress={() => router.push(`/(tabs)/transfer?selectedUid=${contact.uid}`)}
               />
             ))}
             {contacts.length === 0 && (
@@ -302,6 +399,7 @@ export default function HomeScreen() {
                 key={tx.id}
                 item={tx}
                 currentUserId={profile?.uid}
+                onPress={() => router.push(`/receipt?txnId=${tx.id}`)}
               />
             ))}
             {recentTransactions.length === 0 && !isTxLoading && (

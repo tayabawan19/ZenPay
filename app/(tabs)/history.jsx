@@ -17,6 +17,9 @@ import { useTransactions } from '../../hooks/useTransactions';
 import TransactionItem from '../../components/TransactionItem';
 import { colors } from '../../constants/colors';
 import GlobalBackground from '../../components/GlobalBackground';
+import { useRouter } from 'expo-router';
+import SkeletonBox from '../../components/SkeletonBox';
+import EmptyState from '../../components/EmptyState';
 
 // Reusable Filter Chip component with tap bounciness
 const FilterChip = ({ label, isActive, onPress }) => {
@@ -50,7 +53,47 @@ const FilterChip = ({ label, isActive, onPress }) => {
   );
 };
 
+const HistoryScreenSkeleton = () => {
+  return (
+    <GlobalBackground>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        {/* Search header */}
+        <View style={styles.searchHeader}>
+          <Text style={styles.title}>History</Text>
+          <SkeletonBox width="100%" height={56} borderRadius={18} style={{ marginBottom: 16 }} />
+        </View>
+
+        {/* Filter chips skeleton (4 pills) */}
+        <View style={{ flexDirection: 'row', paddingHorizontal: 20, marginBottom: 20, gap: 10 }}>
+          <SkeletonBox width={60} height={32} borderRadius={12} />
+          <SkeletonBox width={60} height={32} borderRadius={12} />
+          <SkeletonBox width={60} height={32} borderRadius={12} />
+          <SkeletonBox width={60} height={32} borderRadius={12} />
+        </View>
+
+        {/* 8 transaction rows, starting with a date heading */}
+        <View style={{ paddingHorizontal: 20, gap: 12 }}>
+          <SkeletonBox width={80} height={10} borderRadius={4} style={{ marginBottom: 4 }} />
+          {Array.from({ length: 8 }).map((_, i) => (
+            <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.02)', padding: 16, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <SkeletonBox width={46} height={46} borderRadius={14} style={{ marginRight: 12 }} />
+                <View style={{ gap: 6 }}>
+                  <SkeletonBox width={120} height={12} borderRadius={3} />
+                  <SkeletonBox width={80} height={10} borderRadius={3} />
+                </View>
+              </View>
+              <SkeletonBox width={60} height={12} borderRadius={3} />
+            </View>
+          ))}
+        </View>
+      </SafeAreaView>
+    </GlobalBackground>
+  );
+};
+
 export default function HistoryScreen() {
+  const router = useRouter();
   const { profile } = useAuth();
   const { transactions, fetchTransactions } = useTransactions();
 
@@ -59,9 +102,10 @@ export default function HistoryScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [visibleCount, setVisibleCount] = useState(15); 
   const [searchFocused, setSearchFocused] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchTransactions();
+    fetchTransactions().finally(() => setLoading(false));
   }, []);
 
   const handleRefresh = async () => {
@@ -163,9 +207,14 @@ export default function HistoryScreen() {
       <TransactionItem
         item={item.item}
         currentUserId={profile?.uid}
+        onPress={() => router.push(`/receipt?txnId=${item.item.id}`)}
       />
     );
   };
+
+  if (loading) {
+    return <HistoryScreenSkeleton />;
+  }
 
   return (
     <GlobalBackground>
@@ -228,17 +277,30 @@ export default function HistoryScreen() {
               refreshing={refreshing}
               onRefresh={handleRefresh}
               tintColor="#7C6FFF"
-              title="Refreshing..."
-              titleColor="rgba(255,255,255,0.4)"
+              colors={['#7C6FFF']}
             />
           }
-          ListEmptyComponent={() => (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="receipt-outline" size={48} color="rgba(255,255,255,0.2)" style={{ marginBottom: 12 }} />
-              <Text style={styles.emptyText}>No transactions found</Text>
-              <Text style={styles.emptySub}>Try searching for another keyword or change your filter.</Text>
-            </View>
-          )}
+          ListEmptyComponent={() => {
+            if (searchQuery.trim().length > 0) {
+              return (
+                <EmptyState
+                  icon="search-outline"
+                  title="No Results Found"
+                  subtitle="No transactions match your search. Try a different name or amount."
+                />
+              );
+            } else {
+              return (
+                <EmptyState
+                  icon="receipt-outline"
+                  title="No Transactions Yet"
+                  subtitle="Your transaction history will appear here once you send or receive money."
+                  action={() => router.push('/(tabs)/transfer')}
+                  actionLabel="Send Money"
+                />
+              );
+            }
+          }}
         />
       </SafeAreaView>
     </GlobalBackground>

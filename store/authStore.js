@@ -14,6 +14,7 @@ export const useAuthStore = create((set, get) => ({
   error: null,                  // Login or registration error messages
   isBiometricsEnabled: false,    // Bio-authentication setting state
   isNotificationsEnabled: true, // App notification setting state
+  isPinVerified: false,         // Session PIN verified status
   unsubProfileListener: null,   // Holds the onSnapshot cleanup function
 
   syncProfileWithBackend: async (profileData) => {
@@ -44,9 +45,19 @@ export const useAuthStore = create((set, get) => ({
       if (data.success && data.profile) {
         set({ profile: data.profile });
         await AsyncStorage.setItem(`zenpay_profile_${uid}`, JSON.stringify(data.profile));
+      } else {
+        throw new Error("API profile fetch was unsuccessful");
       }
     } catch (e) {
-      console.warn("Failed to fetch profile from backend database:", e.message);
+      console.warn("Failed to fetch profile from backend database, checking AsyncStorage fallback:", e.message);
+      try {
+        const localProfile = await AsyncStorage.getItem(`zenpay_profile_${uid}`);
+        if (localProfile) {
+          set({ profile: JSON.parse(localProfile) });
+        }
+      } catch (err) {
+        console.error("Local profile fetch error:", err);
+      }
     }
   },
 
@@ -71,6 +82,46 @@ export const useAuthStore = create((set, get) => ({
         // Start real-time transaction listener
         useTransactionStore.getState().startTransactionListener(firebaseUser.uid);
         
+        const isMock = auth.config?.apiKey?.includes('Placeholder') || !auth.config?.apiKey || auth._isMock;
+        if (isMock) {
+          console.log("Mock session active: loading profile from AsyncStorage.");
+          try {
+            const localData = await AsyncStorage.getItem(`zenpay_profile_${firebaseUser.uid}`);
+            if (localData) {
+              const profileData = JSON.parse(localData);
+              set({ profile: profileData, isLoading: false });
+              get().syncProfileWithBackend(profileData);
+              get().fetchProfile(firebaseUser.uid);
+            } else {
+              // Create local default profile if none exists
+              const defaultProfile = {
+                uid: firebaseUser.uid,
+                name: firebaseUser.displayName || 'ZenPay User',
+                email: firebaseUser.email,
+                phone: '+923000000000',
+                balance: 10000,
+                kycStatus: 'verified',
+                virtualCard: {
+                  number: '4242 4242 4242 4242',
+                  expiry: '12/28',
+                  cvv: '123',
+                  limit: 50000,
+                  spent: 0,
+                  isActive: true,
+                  onlinePayments: true,
+                }
+              };
+              await AsyncStorage.setItem(`zenpay_profile_${firebaseUser.uid}`, JSON.stringify(defaultProfile));
+              set({ profile: defaultProfile, isLoading: false });
+              get().syncProfileWithBackend(defaultProfile);
+            }
+          } catch (e) {
+            console.error("Local profile fetch/create error:", e);
+            set({ profile: null, isLoading: false });
+          }
+          return;
+        }
+
         // Setup real-time listener for current user's profile
         const userDocRef = doc(db, 'users', firebaseUser.uid);
         const unsubProfile = onSnapshot(userDocRef, (docSnap) => {
@@ -356,6 +407,29 @@ export const useAuthStore = create((set, get) => ({
       existingUnsub();
     }
 
+    const isMock = auth.config?.apiKey?.includes('Placeholder') || !auth.config?.apiKey || auth._isMock;
+    if (isMock) {
+      console.log("Mock session active: skip real-time profile listener.");
+      // Just fetch local profile once
+      AsyncStorage.getItem(`zenpay_profile_${uid}`).then((localData) => {
+        if (localData) {
+          const parsed = JSON.parse(localData);
+          set({ 
+            profile: parsed, 
+            user: { ...get().user, balance: parsed.balance },
+            balance: parsed.balance,
+            isLoading: false 
+          });
+        }
+      });
+      const unsubscribeDummy = () => {};
+      set({ 
+        unsubProfileListener: unsubscribeDummy,
+        unsubscribeUser: unsubscribeDummy 
+      });
+      return unsubscribeDummy;
+    }
+
     const userDocRef = doc(db, 'users', uid);
     const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -443,6 +517,7 @@ export const useAuthStore = create((set, get) => ({
         balance: 0,
         unsubProfileListener: null, 
         unsubscribeUser: null,
+        isPinVerified: false,
         isLoading: false 
       });
     } catch (error) {
@@ -542,4 +617,5 @@ export const useAuthStore = create((set, get) => ({
    */
   toggleBiometrics: (value) => set({ isBiometricsEnabled: value }),
   toggleNotifications: (value) => set({ isNotificationsEnabled: value }),
+  setPinVerified: (value) => set({ isPinVerified: value }),
 }));

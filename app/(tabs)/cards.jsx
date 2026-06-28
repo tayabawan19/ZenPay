@@ -19,6 +19,8 @@ import VirtualCard from '../../components/VirtualCard';
 import { colors } from '../../constants/colors';
 import { formatPKR } from '../../utils/format';
 import GlobalBackground from '../../components/GlobalBackground';
+import SkeletonBox from '../../components/SkeletonBox';
+import { RefreshControl } from 'react-native';
 
 // Reusable Custom Toggle component with spring sliding thumb
 const CustomToggle = ({ value, onValueChange, activeColor = '#00D4FF', trackActiveBg = 'rgba(0,212,255,0.2)' }) => {
@@ -59,12 +61,22 @@ const CustomToggle = ({ value, onValueChange, activeColor = '#00D4FF', trackActi
 };
 
 export default function CardsScreen() {
-  const { profile, toggleCardFreeze, setCardLimit, toggleCardOnlinePayments } = useAuth();
-  const { transactions } = useTransactions();
+  const { profile, toggleCardFreeze, setCardLimit, toggleCardOnlinePayments, fetchProfile } = useAuth();
+  const { transactions, fetchTransactions } = useTransactions();
 
   const [showDetails, setShowDetails] = useState(false);
   const [customLimit, setCustomLimit] = useState('');
   const [isEditingLimit, setIsEditingLimit] = useState(false);
+  
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      profile?.uid ? fetchProfile(profile.uid) : Promise.resolve(),
+      fetchTransactions()
+    ]).finally(() => setLoading(false));
+  }, [profile?.uid]);
 
   // Spent amount: sum of P2P debits
   const cardSpent = transactions
@@ -120,10 +132,64 @@ export default function CardsScreen() {
     setCustomLimit('');
   };
 
+  const onRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        profile?.uid ? fetchProfile(profile.uid) : Promise.resolve(),
+        fetchTransactions()
+      ]);
+    } catch (e) {
+      console.warn("Cards screen refresh failed:", e);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const CardsScreenSkeleton = () => {
+    return (
+      <GlobalBackground>
+        <SafeAreaView style={styles.container} edges={['top']}>
+          <View style={{ padding: 20 }}>
+            <Text style={[styles.title, { marginBottom: 16 }]}>Virtual Card</Text>
+            {/* Card */}
+            <SkeletonBox width="100%" height={220} borderRadius={24} style={{ marginBottom: 24 }} />
+            {/* Help helper text */}
+            <SkeletonBox width={200} height={12} borderRadius={3} style={{ alignSelf: 'center', marginBottom: 24 }} />
+            {/* Controls: 4 rows */}
+            <View style={{ gap: 12 }}>
+              <SkeletonBox width="100%" height={56} borderRadius={18} />
+              <SkeletonBox width="100%" height={56} borderRadius={18} />
+              <SkeletonBox width="100%" height={56} borderRadius={18} />
+              <SkeletonBox width="100%" height={56} borderRadius={18} />
+            </View>
+          </View>
+        </SafeAreaView>
+      </GlobalBackground>
+    );
+  };
+
+  if (loading) {
+    return <CardsScreenSkeleton />;
+  }
+
   return (
     <GlobalBackground>
       <SafeAreaView style={styles.container} edges={['top']}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <ScrollView 
+          showsVerticalScrollIndicator={false} 
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#7C6FFF"
+              colors={['#7C6FFF']}
+              progressBackgroundColor="rgba(255,255,255,0.05)"
+            />
+          }
+        >
           <Text style={styles.title}>Virtual Card</Text>
 
           {/* 3D Realistic flip card */}

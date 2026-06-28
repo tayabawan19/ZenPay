@@ -9,8 +9,10 @@ import {
   Animated,
   Easing,
   Platform,
-  Pressable
+  Pressable,
+  RefreshControl
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -66,7 +68,8 @@ export default function ProfileScreen() {
     isBiometricsEnabled, 
     isNotificationsEnabled, 
     toggleBiometrics, 
-    toggleNotifications 
+    toggleNotifications,
+    fetchProfile
   } = useAuth();
 
   const { transactions } = useTransactions();
@@ -75,6 +78,22 @@ export default function ProfileScreen() {
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const logoutScale = useRef(new Animated.Value(1.0)).current;
   const logoutFlash = useRef(new Animated.Value(0)).current;
+
+  const [refreshing, setRefreshing] = useState(false);
+  const [pinSet, setPinSet] = useState(false);
+
+  const checkPinSet = async () => {
+    try {
+      const pin = await AsyncStorage.getItem('zenpay_pin');
+      setPinSet(!!pin);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    checkPinSet();
+  }, [refreshing, profile]);
 
   useEffect(() => {
     // 20s slowly rotating ring
@@ -132,6 +151,50 @@ export default function ProfileScreen() {
     } else {
       toggleBiometrics(false);
       Alert.alert('Disabled', 'Biometric login has been disabled.');
+    }
+  };
+
+  const onRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      if (profile?.uid) {
+        await fetchProfile(profile.uid);
+      }
+    } catch (e) {
+      console.warn("Profile refresh failed:", e);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleAppPinPress = () => {
+    if (!pinSet) {
+      router.push('/pin');
+    } else {
+      Alert.alert(
+        'App PIN Options',
+        'Manage your local security PIN.',
+        [
+          {
+            text: 'Change PIN',
+            onPress: () => router.push('/pin?action=change')
+          },
+          {
+            text: 'Remove PIN',
+            style: 'destructive',
+            onPress: async () => {
+              await AsyncStorage.removeItem('zenpay_pin');
+              setPinSet(false);
+              Alert.alert('PIN Removed', 'Your App PIN security has been disabled.');
+            }
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          }
+        ]
+      );
     }
   };
 
@@ -210,7 +273,19 @@ export default function ProfileScreen() {
   return (
     <GlobalBackground>
       <SafeAreaView style={styles.container} edges={['top']}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <ScrollView 
+          showsVerticalScrollIndicator={false} 
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#7C6FFF"
+              colors={['#7C6FFF']}
+              progressBackgroundColor="rgba(255,255,255,0.05)"
+            />
+          }
+        >
           <Text style={styles.title}>Profile</Text>
 
           {/* Profile Hero Glass Card */}
@@ -355,7 +430,16 @@ export default function ProfileScreen() {
               iconName="lock-closed-outline" 
               iconColor="#FF4D6A" 
               label="App PIN" 
-              onPress={() => Alert.alert('App PIN', 'Local security PIN is configured and active.')}
+              rightElement={
+                !pinSet ? (
+                  <View style={styles.tagBadgeGreen}>
+                    <Text style={styles.tagBadgeGreenText}>Set Up</Text>
+                  </View>
+                ) : (
+                  <Text style={{ color: 'rgba(255, 255, 255, 0.4)', fontSize: 13, marginRight: 4 }}>Active</Text>
+                )
+              }
+              onPress={handleAppPinPress}
             />
             <SettingsRow 
               iconName="shield-outline" 
