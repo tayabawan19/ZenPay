@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "ZenPay",
-    "slug": "ZenPay",
+    "slug": "zenpay",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -49,6 +49,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d5ed1591-d7be-4092-92b8-83109ea871c7"
+      }
+    },
+    "owner": "tayabawan2004"
   }
 }
