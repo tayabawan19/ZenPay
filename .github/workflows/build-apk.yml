@@ -30,7 +30,7 @@ jobs:
           java-version: '17'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Clean and Generate Android Native Directory
         run: npx expo prebuild --platform android --clean
