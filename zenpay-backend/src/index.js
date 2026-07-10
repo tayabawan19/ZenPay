@@ -50,7 +50,11 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start listening
-app.listen(PORT, () => {
-  console.log(`ZenPay backend server active on port ${PORT}`);
-});
+// Start listening if run directly
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`ZenPay backend server active on port ${PORT}`);
+  });
+}
+
+module.exports = app;
