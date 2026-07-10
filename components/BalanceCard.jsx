@@ -7,8 +7,7 @@ import { formatPKR } from '../utils/format';
 
 const { width: screenWidth } = Dimensions.get('window');
 
-export const BalanceCard = ({ profile, isLoading, onTopUp, onSend, onReceive }) => {
-  const [isBalanceVisible, setIsBalanceVisible] = useState(true);
+export const BalanceCard = ({ profile, isLoading, onTopUp, onSend, onReceive, balanceVisible, toggleBalance, fadeAnim }) => {
   const [displayBalance, setDisplayBalance] = useState(0);
 
   // Zustand Store subscription to pull transactions and compute totals dynamically
@@ -55,11 +54,18 @@ export const BalanceCard = ({ profile, isLoading, onTopUp, onSend, onReceive }) 
     return () => countAnim.removeListener(id);
   }, []);
 
+  const isTouchOnButton = useRef(false);
+
   // 3. PanResponder for 3D Parallax tilt
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: (evt, gestureState) => {
+        return !isTouchOnButton.current;
+      },
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        if (isTouchOnButton.current) return false;
+        return Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5;
+      },
       onPanResponderMove: (evt, gestureState) => {
         // dy controls rotateX, dx controls rotateY
         const rotateXVal = -gestureState.dy / 8;
@@ -111,9 +117,10 @@ export const BalanceCard = ({ profile, isLoading, onTopUp, onSend, onReceive }) 
     .filter((tx) => tx.senderId === uid && tx.status === 'success' && tx.category !== 'topup')
     .reduce((sum, tx) => sum + tx.amount, 0);
 
-  const toggleBalanceVisibility = () => {
-    setIsBalanceVisible(prev => !prev);
-  };
+  const formattedBalance = `PKR ${Number(displayBalance).toLocaleString('en-PK', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
 
   // Render loading skeleton
   if (isLoading || !profile) {
@@ -181,19 +188,26 @@ export const BalanceCard = ({ profile, isLoading, onTopUp, onSend, onReceive }) 
         {/* Top Row */}
         <View style={styles.headerRow}>
           <Text style={styles.cardTitle}>TOTAL BALANCE</Text>
-          <TouchableOpacity onPress={toggleBalanceVisibility} style={styles.eyeButton} activeOpacity={0.7}>
+          <TouchableOpacity 
+            onPress={toggleBalance} 
+            onTouchStart={() => { isTouchOnButton.current = true; }}
+            onTouchEnd={() => { isTouchOnButton.current = false; }}
+            onTouchCancel={() => { isTouchOnButton.current = false; }}
+            style={styles.eyeButton} 
+            activeOpacity={0.7}
+          >
             <Ionicons 
-              name={isBalanceVisible ? 'eye-outline' : 'eye-off-outline'} 
+              name={balanceVisible ? 'eye-outline' : 'eye-off-outline'} 
               size={20} 
-              color="rgba(255,255,255,0.6)" 
+              color="rgba(255,255,255,0.5)" 
             />
           </TouchableOpacity>
         </View>
 
         {/* Balance Display */}
-        <Text style={styles.balanceText}>
-          {isBalanceVisible ? formatPKR(displayBalance) : 'PKR ••••••'}
-        </Text>
+        <Animated.Text style={[styles.balanceText, { opacity: fadeAnim }]}>
+          {balanceVisible ? formattedBalance : 'PKR ••••••'}
+        </Animated.Text>
 
         <View style={styles.divider} />
 
@@ -206,7 +220,7 @@ export const BalanceCard = ({ profile, isLoading, onTopUp, onSend, onReceive }) 
               <Text style={styles.statLabel}>Income</Text>
             </View>
             <Text style={styles.incomeAmount} numberOfLines={1}>
-              {isBalanceVisible ? formatPKR(incomeTotal) : 'PKR •••'}
+              {balanceVisible ? formatPKR(incomeTotal) : 'PKR •••'}
             </Text>
           </View>
 
@@ -220,7 +234,7 @@ export const BalanceCard = ({ profile, isLoading, onTopUp, onSend, onReceive }) 
               <Text style={styles.statLabel}>Expenses</Text>
             </View>
             <Text style={styles.expensesAmount} numberOfLines={1}>
-              {isBalanceVisible ? formatPKR(expensesTotal) : 'PKR •••'}
+              {balanceVisible ? formatPKR(expensesTotal) : 'PKR •••'}
             </Text>
           </View>
         </View>

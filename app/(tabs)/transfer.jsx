@@ -26,7 +26,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
 import { useAuth } from '../../hooks/useAuth';
 import { useTransactions } from '../../hooks/useTransactions';
-import { fetchAllUsers, searchUsers } from '../../services/transactions';
+import { useTransactionStore } from '../../store/transactionStore';
+import { fetchAllUsers, searchUsers, sendMoney } from '../../services/transactions';
 import { colors } from '../../constants/colors';
 import { formatPKR } from '../../utils/format';
 import GlobalBackground from '../../components/GlobalBackground';
@@ -82,6 +83,42 @@ const KeypadKey = ({ val, onPress }) => {
   );
 };
 
+const UserItem = ({ user, onPress }) => {
+  const initial = user.name ? user.name.charAt(0).toUpperCase() : '';
+  return (
+    <View style={styles.userRow}>
+      {/* Top glass highlight */}
+      <View style={styles.topHighlight} />
+
+      <View style={[styles.avatar, { backgroundColor: 'rgba(124, 111, 255, 0.15)' }]}>
+        <Text style={styles.avatarText}>{initial}</Text>
+      </View>
+      
+      <View style={styles.userInfo}>
+        <Text style={styles.userName}>{user.name}</Text>
+        <Text style={styles.userEmail}>{user.email}</Text>
+        {user.phone ? (
+          <Text style={styles.userPhone}>{user.phone}</Text>
+        ) : null}
+      </View>
+
+      <TouchableOpacity
+        style={styles.sendBtnSmall}
+        onPress={onPress}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.sendBtnSmallText}>Send</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+const LoadingSkeleton = () => (
+  <View style={{ padding: 20 }}>
+    <ActivityIndicator size="small" color="#7C6FFF" style={{ marginTop: 24 }} />
+  </View>
+);
+
 const hashPin = (pin) => {
   return pin.split('').reduce((acc, char) =>
     acc + char.charCodeAt(0), 0
@@ -123,11 +160,13 @@ export default function TransferScreen() {
   const params = useLocalSearchParams();
 
   const { profile } = useAuth();
-  const { sendMoney, fetchContacts } = useTransactions();
+  const { fetchContacts } = useTransactions();
 
   // Search/recipient state
+  const [allUsers, setAllUsers] = useState([]);
+  const [filteredUsers, setFilteredUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
@@ -159,19 +198,25 @@ export default function TransferScreen() {
 
   // Load all users on mount
   useEffect(() => {
-    const loadAllUsers = async () => {
-      if (!profile?.uid) return;
-      try {
-        const result = await fetchAllUsers(profile.uid);
-        setUsers(result);
-      } catch (err) {
-        console.error("Load users error:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadAllUsers();
+    if (profile?.uid) {
+      loadUsers();
+    }
   }, [profile?.uid]);
+
+  const loadUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const users = await fetchAllUsers(profile.uid);
+      setAllUsers(users);
+      setFilteredUsers(users);
+      console.log('Users loaded:', users.length);
+    } catch (err) {
+      console.error('loadUsers error:', err);
+    } finally {
+      setLoadingUsers(false);
+      setLoading(false);
+    }
+  };
 
   // Check if a recipient was navigated to from another screen (like Quick Send)
   useEffect(() => {
@@ -179,29 +224,6 @@ export default function TransferScreen() {
       loadDirectRecipient(params.selectedUid);
     }
   }, [params.selectedUid, profile?.uid]);
-
-  // Search users based on query (debounced 400ms)
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(() => {
-      handleSearch(searchQuery);
-    }, 400);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [searchQuery, profile?.uid]);
-
-  // Handle slide-in animation when selecting a contact
-  useEffect(() => {
-    if (selectedUser) {
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        tension: 80,
-        friction: 12,
-        useNativeDriver: false,
-      }).start();
-    } else {
-      slideAnim.setValue(screenWidth);
-    }
-  }, [selectedUser]);
 
   const loadDirectRecipient = async (uid) => {
     if (!profile?.uid) return;
@@ -219,22 +241,32 @@ export default function TransferScreen() {
     }
   };
 
-  const handleSearch = async (queryStr) => {
-    if (!profile?.uid) return;
-    setIsSearching(true);
-    try {
-      if (!queryStr || queryStr.trim() === '') {
-        const result = await fetchAllUsers(profile.uid);
-        setUsers(result);
-      } else {
-        const result = await searchUsers(queryStr, profile.uid);
-        setUsers(result);
-      }
-    } catch (err) {
-      console.error("Search error:", err);
-    } finally {
-      setIsSearching(false);
+  // Handle slide-in animation when selecting a contact
+  useEffect(() => {
+    if (selectedUser) {
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        tension: 80,
+        friction: 12,
+        useNativeDriver: false,
+      }).start();
+    } else {
+      slideAnim.setValue(screenWidth);
     }
+  }, [selectedUser]);
+
+  const handleSearch = (text) => {
+    setSearchQuery(text);
+    if (!text.trim()) {
+      setFilteredUsers(allUsers);
+      return;
+    }
+    const q = text.toLowerCase();
+    setFilteredUsers(allUsers.filter(u =>
+      u.name?.toLowerCase().includes(q) ||
+      u.email?.toLowerCase().includes(q) ||
+      u.phone?.includes(q)
+    ));
   };
 
   // Keyboard press handler
@@ -393,7 +425,8 @@ export default function TransferScreen() {
     setRefreshing(true);
     try {
       const result = await fetchAllUsers(profile.uid);
-      setUsers(result);
+      setAllUsers(result);
+      setFilteredUsers(result);
       await fetchContacts();
     } catch (err) {
       console.error("Transfer screen refresh failed: ", err);
@@ -441,6 +474,7 @@ export default function TransferScreen() {
       });
 
       if (res.success) {
+        useTransactionStore.getState().fetchTransactions();
         await sendMockLocalNotification(selectedUser.name, amountVal);
 
         setShowSuccess(true);
@@ -499,34 +533,8 @@ export default function TransferScreen() {
     </View>
   );
 
-  const renderUserItem = ({ item }) => {
-    const initial = item.name ? item.name.charAt(0).toUpperCase() : '';
-    return (
-      <View style={styles.userRow}>
-        {/* Top glass highlight */}
-        <View style={styles.topHighlight} />
-
-        <View style={[styles.avatar, { backgroundColor: 'rgba(124, 111, 255, 0.15)' }]}>
-          <Text style={styles.avatarText}>{initial}</Text>
-        </View>
-        
-        <View style={styles.userInfo}>
-          <Text style={styles.userName}>{item.name}</Text>
-          <Text style={styles.userEmail}>{item.email}</Text>
-          {item.phone ? (
-            <Text style={styles.userPhone}>{item.phone}</Text>
-          ) : null}
-        </View>
-
-        <TouchableOpacity
-          style={styles.sendBtnSmall}
-          onPress={() => setSelectedUser(item)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.sendBtnSmallText}>Send</Text>
-        </TouchableOpacity>
-      </View>
-    );
+  const selectUser = (user) => {
+    setSelectedUser(user);
   };
 
   const amountNum = parseFloat(amountStr);
@@ -594,9 +602,14 @@ export default function TransferScreen() {
             ) : (
               <FlatList
                 style={styles.resultsList}
-                data={users}
+                data={filteredUsers}
                 keyExtractor={(item) => item.uid}
-                renderItem={renderUserItem}
+                renderItem={({ item }) => (
+                  <UserItem 
+                    user={item} 
+                    onPress={() => selectUser(item)} 
+                  />
+                )}
                 refreshControl={
                   <RefreshControl
                     refreshing={refreshing}
@@ -605,27 +618,15 @@ export default function TransferScreen() {
                     colors={['#7C6FFF']}
                   />
                 }
-                ListEmptyComponent={() => {
-                  if (searchQuery.trim().length > 0) {
-                    return (
-                      <EmptyState
+                ListEmptyComponent={
+                  loadingUsers 
+                    ? <LoadingSkeleton /> 
+                    : <EmptyState
                         icon="people-outline"
                         title="No Users Found"
-                        subtitle="We couldn't find anyone matching your search. Ask your friends to join ZenPay!"
+                        subtitle="No users match your search."
                       />
-                    );
-                  } else {
-                    return (
-                      <EmptyState
-                        icon="person-add-outline"
-                        title="No Quick Contacts"
-                        subtitle="Users you send money to will appear here for quick access."
-                        action={() => searchInputRef.current?.focus()}
-                        actionLabel="Search Users"
-                      />
-                    );
-                  }
-                }}
+                }
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={{ paddingBottom: 110 }}

@@ -166,6 +166,25 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [receiveModalVisible, setReceiveModalVisible] = useState(false);
   const [topUpModalVisible, setTopUpModalVisible] = useState(false);
+  const [balanceVisible, setBalanceVisible] = useState(true);
+
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+
+  const toggleBalance = () => {
+    Animated.sequence([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    setBalanceVisible(prev => !prev);
+  };
 
   // Animations
   const rotateAnim = useRef(new Animated.Value(0)).current;
@@ -312,6 +331,9 @@ export default function HomeScreen() {
             onSend={() => router.push('/(tabs)/transfer')}
             onReceive={() => setReceiveModalVisible(true)}
             onTopUp={() => setTopUpModalVisible(true)}
+            balanceVisible={balanceVisible}
+            toggleBalance={toggleBalance}
+            fadeAnim={fadeAnim}
           />
 
           {/* Quick Actions Title */}
@@ -428,7 +450,7 @@ export default function HomeScreen() {
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={styles.miniStatLabel}>THIS MONTH</Text>
-                  <Text style={styles.spentTextAmount}>{formatPKR(thisMonthSpent)}</Text>
+                  <Text style={styles.spentTextAmount}>{balanceVisible ? formatPKR(thisMonthSpent) : 'PKR •••'}</Text>
                 </View>
               </View>
             </View>
@@ -442,7 +464,7 @@ export default function HomeScreen() {
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={styles.miniStatLabel}>TOTAL RECEIVED</Text>
-                  <Text style={styles.receivedTextAmount}>{formatPKR(totalReceived)}</Text>
+                  <Text style={styles.receivedTextAmount}>{balanceVisible ? formatPKR(totalReceived) : 'PKR •••'}</Text>
                 </View>
               </View>
             </View>

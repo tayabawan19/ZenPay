@@ -14,7 +14,8 @@ import {
   Animated,
   Easing,
   Pressable,
-  Dimensions
+  Dimensions,
+  Keyboard
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -165,6 +166,7 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
+    Keyboard.dismiss();
     if (!validateForm()) return;
 
     try {

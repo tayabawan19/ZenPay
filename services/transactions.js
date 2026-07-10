@@ -31,12 +31,13 @@ export const fetchAllUsers = async (currentUserId) => {
         if (u.uid !== currentUserId) {
           users.push({
             uid: u.uid,
-            name: u.name || 'Unknown',
+            name: u.name || 'Unknown User',
             email: u.email || '',
             phone: u.phone || '',
           });
         }
       });
+      console.log('Fetched mock users:', users.length);
       return users;
     } catch (e) {
       console.warn("Failed to fetch mock users from AsyncStorage: ", e);
@@ -44,20 +45,22 @@ export const fetchAllUsers = async (currentUserId) => {
   }
 
   try {
-    const usersRef = collection(db, 'users');
-    const snapshot = await getDocs(usersRef);
+    const snapshot = await getDocs(
+      collection(db, 'users')
+    );
     const users = [];
     snapshot.forEach((doc) => {
       if (doc.id !== currentUserId) {
         const data = doc.data();
         users.push({
           uid: doc.id,
-          name: data.name || 'Unknown',
+          name: data.name || 'Unknown User',
           email: data.email || '',
           phone: data.phone || '',
         });
       }
     });
+    console.log('Fetched users:', users.length);
     return users;
   } catch (error) {
     console.error('fetchAllUsers error:', error);
@@ -71,7 +74,7 @@ export const fetchAllUsers = async (currentUserId) => {
         if (u.uid !== currentUserId) {
           users.push({
             uid: u.uid,
-            name: u.name || 'Unknown',
+            name: u.name || 'Unknown User',
             email: u.email || '',
             phone: u.phone || '',
           });
@@ -84,20 +87,18 @@ export const fetchAllUsers = async (currentUserId) => {
   }
 };
 
-export const searchUsers = async (query, currentUserId) => {
-  try {
-    const allUsers = await fetchAllUsers(currentUserId);
-    if (!query || query.trim() === '') return allUsers;
-    const q = query.toLowerCase().trim();
-    return allUsers.filter(user =>
-      user.name?.toLowerCase().includes(q) ||
-      user.email?.toLowerCase().includes(q) ||
-      user.phone?.includes(q)
-    );
-  } catch (error) {
-    console.error('searchUsers error:', error);
-    return [];
-  }
+export const searchUsers = async (
+  query, 
+  currentUserId
+) => {
+  const allUsers = await fetchAllUsers(currentUserId);
+  if (!query || query.trim() === '') return allUsers;
+  const q = query.toLowerCase().trim();
+  return allUsers.filter(u =>
+    u.name?.toLowerCase().includes(q) ||
+    u.email?.toLowerCase().includes(q) ||
+    u.phone?.includes(q)
+  );
 };
 
 export const sendMoney = async ({
@@ -108,74 +109,226 @@ export const sendMoney = async ({
   amount,
   note
 }) => {
+  const isMockAuth = auth.config?.apiKey?.includes('Placeholder') || !auth.config?.apiKey || auth._isMock;
+
+  if (isMockAuth) {
+    console.warn("Using mock client-side sendMoney fallback.");
+    try {
+      const numAmount = Number(amount);
+      if (!numAmount || numAmount <= 0) {
+        return { success: false, message: 'Invalid amount' };
+      }
+      if (senderId === receiverId) {
+        return { success: false, message: "Can't send money to yourself" };
+      }
+
+      // Read sender profile
+      const senderProfileStr = await AsyncStorage.getItem(`zenpay_profile_${senderId}`);
+      if (!senderProfileStr) {
+        return { success: false, message: 'Sender account not found' };
+      }
+      const senderProfile = JSON.parse(senderProfileStr);
+      if (senderProfile.balance < numAmount) {
+        return { 
+          success: false, 
+          message: `Insufficient balance. Available: PKR ${senderProfile.balance.toLocaleString()}` 
+        };
+      }
+
+      // Read receiver profile
+      const mockUsersStr = await AsyncStorage.getItem('zenpay_mock_auth_users');
+      const mockUsers = mockUsersStr ? JSON.parse(mockUsersStr) : {};
+      
+      // Find receiver profile by receiverId
+      let receiverProfile = null;
+      Object.keys(mockUsers).forEach((email) => {
+        if (mockUsers[email].uid === receiverId) {
+          receiverProfile = mockUsers[email];
+        }
+      });
+
+      if (!receiverProfile) {
+        return { success: false, message: 'Receiver account not found' };
+      }
+
+      // Deduct from sender
+      senderProfile.balance -= numAmount;
+      await AsyncStorage.setItem(`zenpay_profile_${senderId}`, JSON.stringify(senderProfile));
+
+      // Add to receiver
+      const receiverProfileDataStr = await AsyncStorage.getItem(`zenpay_profile_${receiverId}`);
+      let receiverProfileData = receiverProfileDataStr ? JSON.parse(receiverProfileDataStr) : null;
+      if (!receiverProfileData) {
+        receiverProfileData = {
+          uid: receiverId,
+          name: receiverProfile.name,
+          email: receiverProfile.email,
+          phone: receiverProfile.phone,
+          balance: 10000,
+          virtualCard: {
+            number: '4242 4242 4242 4242',
+            expiry: '12/28',
+            cvv: '123',
+            limit: 50000,
+            spent: 0,
+            isActive: true,
+            onlinePayments: true,
+          }
+        };
+      }
+      receiverProfileData.balance += numAmount;
+      await AsyncStorage.setItem(`zenpay_profile_${receiverId}`, JSON.stringify(receiverProfileData));
+
+      // Create transaction records
+      const txId = 'tx_mock_' + Math.random().toString(36).substr(2, 9);
+      const debitTx = {
+        id: txId + '_debit',
+        senderId,
+        receiverId,
+        senderName: senderName || senderProfile.name || 'Unknown',
+        receiverName: receiverName || receiverProfile.name || 'Unknown',
+        amount: numAmount,
+        type: 'debit',
+        category: 'transfer',
+        note: note?.trim() || 'Money Transfer',
+        status: 'success',
+        timestamp: new Date().toISOString(),
+      };
+
+      const creditTx = {
+        id: txId + '_credit',
+        senderId,
+        receiverId,
+        senderName: senderName || senderProfile.name || 'Unknown',
+        receiverName: receiverName || receiverProfile.name || 'Unknown',
+        amount: numAmount,
+        type: 'credit',
+        category: 'transfer',
+        note: note?.trim() || 'Money Transfer',
+        status: 'success',
+        timestamp: new Date().toISOString(),
+      };
+
+      // Append to sender transactions
+      const senderTxStr = await AsyncStorage.getItem(`zenpay_transactions_${senderId}`);
+      const senderTxList = senderTxStr ? JSON.parse(senderTxStr) : [];
+      senderTxList.unshift(debitTx);
+      await AsyncStorage.setItem(`zenpay_transactions_${senderId}`, JSON.stringify(senderTxList));
+
+      // Append to receiver transactions
+      const receiverTxStr = await AsyncStorage.getItem(`zenpay_transactions_${receiverId}`);
+      const receiverTxList = receiverTxStr ? JSON.parse(receiverTxStr) : [];
+      receiverTxList.unshift(creditTx);
+      await AsyncStorage.setItem(`zenpay_transactions_${receiverId}`, JSON.stringify(receiverTxList));
+
+      // Update sender store balance synchronously
+      const authStore = useAuthStore.getState();
+      authStore.setState({
+        profile: senderProfile,
+        user: { ...authStore.user, balance: senderProfile.balance },
+        balance: senderProfile.balance
+      });
+
+      // Save receiver as contact
+      await saveContact(receiverId, receiverName, receiverProfile.phone, null);
+
+      return { success: true, message: 'Transfer successful' };
+    } catch (e) {
+      console.error("Mock transfer failed: ", e);
+      return { success: false, message: 'Transfer failed: ' + e.message };
+    }
+  }
+
   try {
+    const numAmount = Number(amount);
+    
+    if (!numAmount || numAmount <= 0) {
+      return { 
+        success: false, 
+        message: 'Invalid amount' 
+      };
+    }
+    if (senderId === receiverId) {
+      return { 
+        success: false, 
+        message: "Can't send money to yourself" 
+      };
+    }
+
     // Check sender balance
     const senderRef = doc(db, 'users', senderId);
     const senderSnap = await getDoc(senderRef);
     
     if (!senderSnap.exists()) {
-      return { success: false, message: 'Sender not found' };
-    }
-    
-    const senderData = senderSnap.data();
-    
-    if (senderData.balance < amount) {
       return { 
         success: false, 
-        message: 'Insufficient balance' 
+        message: 'Sender account not found' 
+      };
+    }
+    
+    const senderBalance = senderSnap.data().balance;
+    
+    if (senderBalance < numAmount) {
+      return { 
+        success: false, 
+        message: `Insufficient balance. Available: PKR ${senderBalance.toLocaleString()}` 
+      };
+    }
+
+    // Verify receiver exists
+    const receiverRef = doc(db, 'users', receiverId);
+    const receiverSnap = await getDoc(receiverRef);
+    
+    if (!receiverSnap.exists()) {
+      return { 
+        success: false, 
+        message: 'Receiver account not found' 
       };
     }
 
     // Atomic batch write
     const batch = writeBatch(db);
-    const receiverRef = doc(db, 'users', receiverId);
 
-    // Deduct from sender
     batch.update(senderRef, {
-      balance: increment(-amount)
+      balance: increment(-numAmount)
     });
 
-    // Add to receiver
     batch.update(receiverRef, {
-      balance: increment(amount)
+      balance: increment(numAmount)
     });
 
-    // Create debit transaction for sender
     const debitRef = doc(collection(db, 'transactions'));
     batch.set(debitRef, {
       id: debitRef.id,
       senderId,
       receiverId,
-      senderName,
-      receiverName,
-      amount,
+      senderName: senderName || 'Unknown',
+      receiverName: receiverName || 'Unknown',
+      amount: numAmount,
       type: 'debit',
       category: 'transfer',
-      note: note || 'Money Transfer',
+      note: note?.trim() || 'Money Transfer',
       status: 'success',
       timestamp: serverTimestamp(),
     });
 
-    // Create credit transaction for receiver
     const creditRef = doc(collection(db, 'transactions'));
     batch.set(creditRef, {
       id: creditRef.id,
       senderId,
       receiverId,
-      senderName,
-      receiverName,
-      amount,
+      senderName: senderName || 'Unknown',
+      receiverName: receiverName || 'Unknown',
+      amount: numAmount,
       type: 'credit',
       category: 'transfer',
-      note: note || 'Money Transfer',
+      note: note?.trim() || 'Money Transfer',
       status: 'success',
       timestamp: serverTimestamp(),
     });
 
-    // Save receiver as contact for sender
     const contactRef = doc(
-      db, 
-      'contacts', senderId, 
+      db, 'contacts', senderId,
       'contacts', receiverId
     );
     batch.set(contactRef, {
@@ -184,19 +337,18 @@ export const sendMoney = async ({
       lastTransfer: serverTimestamp(),
     }, { merge: true });
 
-    // Commit everything at once
     await batch.commit();
 
     return { 
       success: true, 
-      message: 'Transfer successful' 
+      message: 'Transfer successful',
     };
 
   } catch (error) {
     console.error('sendMoney error:', error);
     return { 
       success: false, 
-      message: 'Transfer failed. Please try again.' 
+      message: 'Transfer failed: ' + error.message 
     };
   }
 };

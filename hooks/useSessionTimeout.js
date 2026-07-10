@@ -12,6 +12,7 @@ export default function useSessionTimeout() {
   const warningTimer = useRef(null);
   const { logout } = useAuthStore();
   const [warningVisible, setWarningVisible] = useState(false);
+  const sessionStartTime = useRef(Date.now()).current;
 
   const resetTimer = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -47,6 +48,12 @@ export default function useSessionTimeout() {
         AsyncStorage.getItem('zenpay_last_active')
           .then((last) => {
             if (last) {
+              // Safeguard: if the session is newer than the timeout duration, ignore old storage timestamps
+              if (Date.now() - sessionStartTime < TIMEOUT_DURATION) {
+                resetTimer();
+                return;
+              }
+
               const elapsed = Date.now() - parseInt(last);
               if (elapsed > TIMEOUT_DURATION) {
                 logout().then(() => {

@@ -317,9 +317,6 @@ export default function ProfileScreen() {
               <View style={styles.verifiedBadge}>
                 <Text style={styles.verifiedBadgeText}>Verified ✓</Text>
               </View>
-              <View style={styles.semesterBadge}>
-                <Text style={styles.semesterBadgeText}>4th Semester</Text>
-              </View>
             </View>
           </View>
 

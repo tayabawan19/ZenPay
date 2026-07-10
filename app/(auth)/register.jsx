@@ -12,12 +12,14 @@ import {
   ScrollView,
   Animated,
   Pressable,
-  Dimensions
+  Dimensions,
+  Keyboard
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../hooks/useAuth';
+import { auth } from '../../services/firebase';
 import { colors } from '../../constants/colors';
 import { API_URL } from '../../constants/api';
 import GlobalBackground from '../../components/GlobalBackground';
@@ -207,10 +209,14 @@ export default function RegisterScreen() {
 
   // Step 1: Send OTP code
   const handleSendOtp = async () => {
+    Keyboard.dismiss();
     if (!validateForm()) return;
 
     setIsSendingOtp(true);
     setValidationError('');
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
 
     try {
       const response = await fetch(`${API_URL}/api/auth/send-otp`, {
@@ -222,8 +228,10 @@ export default function RegisterScreen() {
           email: email.trim().toLowerCase(),
           name: name.trim(),
         }),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (response.ok && data.success) {
@@ -237,7 +245,21 @@ export default function RegisterScreen() {
         Alert.alert('Error', errorMsg);
       }
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error(err);
+      
+      const isMockAuth = auth.config?.apiKey?.includes('Placeholder') || !auth.config?.apiKey || auth._isMock;
+      if (isMockAuth) {
+        setTimer(60);
+        setStep(2);
+        setOtp(['', '', '', '', '', '']);
+        Alert.alert(
+          'Backend Offline (Mock Mode)',
+          'The backend service is offline, but since the app is running in mock mode, you can proceed. Use verification code 123456.'
+        );
+        return;
+      }
+
       const networkError = 'Network error. Please make sure the backend is running and reachable.';
       setValidationError(networkError);
       triggerShake();
@@ -249,11 +271,15 @@ export default function RegisterScreen() {
 
   // Resend OTP code
   const handleResendOtp = async () => {
+    Keyboard.dismiss();
     if (timer > 0) return;
 
     setIsSendingOtp(true);
     setValidationError('');
     setOtp(['', '', '', '', '', '']);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
 
     try {
       const response = await fetch(`${API_URL}/api/auth/send-otp`, {
@@ -265,8 +291,10 @@ export default function RegisterScreen() {
           email: email.trim().toLowerCase(),
           name: name.trim(),
         }),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (response.ok && data.success) {
@@ -279,7 +307,16 @@ export default function RegisterScreen() {
         Alert.alert('Error', errorMsg);
       }
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error(err);
+      
+      const isMockAuth = auth.config?.apiKey?.includes('Placeholder') || !auth.config?.apiKey || auth._isMock;
+      if (isMockAuth) {
+        setTimer(60);
+        Alert.alert('Resent Mock Code', 'Backend offline. Please use verification code 123456.');
+        return;
+      }
+
       const networkError = 'Network error. Failed to resend verification code.';
       setValidationError(networkError);
       triggerShake();
@@ -291,6 +328,7 @@ export default function RegisterScreen() {
 
   // Step 2: Verify OTP code and register
   const handleVerifyOtp = async (codeToVerify) => {
+    Keyboard.dismiss();
     const code = codeToVerify || otp.join('');
     if (code.length !== 6) {
       setValidationError('Please enter all 6 digits of the code.');
@@ -302,20 +340,55 @@ export default function RegisterScreen() {
     setValidationError('');
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/verify-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          otp: code,
-        }),
-      });
+      const isMockAuth = auth.config?.apiKey?.includes('Placeholder') || !auth.config?.apiKey || auth._isMock;
+      let success = false;
 
-      const data = await response.json();
+      if (isMockAuth && code === '123456') {
+        success = true;
+      } else {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        try {
+          const response = await fetch(`${API_URL}/api/auth/verify-otp`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              email: email.trim().toLowerCase(),
+              otp: code,
+            }),
+            signal: controller.signal,
+          });
 
-      if (response.ok && data.success) {
+          clearTimeout(timeoutId);
+          const data = await response.json();
+
+          if (response.ok && data.success) {
+            success = true;
+          } else {
+            const errorMsg = data.message || 'Invalid or expired code. Please try again.';
+            setValidationError(errorMsg);
+            triggerShake();
+            Alert.alert('Verification Failed', errorMsg);
+          }
+        } catch (fetchErr) {
+          clearTimeout(timeoutId);
+          if (isMockAuth) {
+            if (code === '123456') {
+              success = true;
+            } else {
+              setValidationError('Invalid code. Please use 123456.');
+              triggerShake();
+              Alert.alert('Verification Failed', 'Invalid code. Please use 123456.');
+            }
+          } else {
+            throw fetchErr;
+          }
+        }
+      }
+
+      if (success) {
         // Set stepper to complete (1.0)
         Animated.spring(progressScaleX, {
           toValue: 1.0,
@@ -330,11 +403,6 @@ export default function RegisterScreen() {
           triggerShake();
           Alert.alert('Registration Failed', firebaseErr.message || 'Failed to initialize account.');
         }
-      } else {
-        const errorMsg = data.message || 'Invalid or expired code. Please try again.';
-        setValidationError(errorMsg);
-        triggerShake();
-        Alert.alert('Verification Failed', errorMsg);
       }
     } catch (err) {
       console.error(err);

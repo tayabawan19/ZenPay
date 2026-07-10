@@ -136,11 +136,9 @@ export const useAuthStore = create((set, get) => ({
                 set({ profile: JSON.parse(localData), isLoading: false });
               } else {
                 set({ profile: null, isLoading: false });
-                signOut(auth).catch(console.error);
               }
             }).catch(() => {
               set({ profile: null, isLoading: false });
-              signOut(auth).catch(console.error);
             });
           }
         }, async (err) => {
@@ -281,64 +279,25 @@ export const useAuthStore = create((set, get) => ({
   register: async (fullName, email, phoneNumber, password) => {
     set({ isLoading: true, error: null });
     try {
-      // 1. Firebase createUserWithEmailAndPassword succeeds
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      
-      // Immediately create a Firestore document at /users/{uid}
-      try {
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
-          uid: userCredential.user.uid,
-          name: fullName,
-          email: email.toLowerCase().trim(),
-          phone: phoneNumber,
-          balance: 0,
-          createdAt: serverTimestamp(),
-          kycStatus: 'pending',
-          virtualCard: {
-            number: '4242 4242 4242 4242',
-            expiry: '12/28',
-            cvv: '123',
-            limit: 50000,
-            spent: 0,
-            isActive: true,
-            isFrozen: false,
-          }
-        });
-      } catch (setDocErr) {
-        // If setDoc fails -> delete the Firebase Auth user and show error
-        await userCredential.user.delete();
-        throw new Error("Account creation failed. Please try again.");
-      }
+      const user = await registerUser(fullName, email, phoneNumber, password);
 
       // 2. Update Zustand authStore
       set({
         user: {
-          uid: userCredential.user.uid,
+          uid: user.uid,
           name: fullName,
           email: email,
           phone: phoneNumber,
-          balance: 0,
+          balance: 10000,
         },
         isAuthenticated: true,
       });
 
       // 3. Start real-time listener immediately after register
-      const uid = userCredential.user.uid;
-      const userRef = doc(db, 'users', uid);
-      const unsubscribe = onSnapshot(userRef, (snap) => {
-        if (snap.exists()) {
-          const data = snap.data();
-          set({ 
-            user: { ...get().user, ...data },
-            balance: data.balance,
-            profile: data // Also update the profile field so the Home/Balance card works!
-          });
-        }
-      });
-      set({ unsubscribeUser: unsubscribe });
+      get().startUserListener(user.uid);
 
       set({ isLoading: false });
-      return userCredential.user;
+      return user;
 
     } catch (error) {
       set({ error: error.message, isLoading: false });
@@ -402,7 +361,7 @@ export const useAuthStore = create((set, get) => ({
    * Start user listener for profile syncing
    */
   startUserListener: (uid) => {
-    const existingUnsub = get().unsubscribeUser || get().unsubProfileListener;
+    const existingUnsub = get().unsubscribeUser;
     if (existingUnsub) {
       existingUnsub();
     }
@@ -424,74 +383,40 @@ export const useAuthStore = create((set, get) => ({
       });
       const unsubscribeDummy = () => {};
       set({ 
-        unsubProfileListener: unsubscribeDummy,
         unsubscribeUser: unsubscribeDummy 
       });
       return unsubscribeDummy;
     }
 
-    const userDocRef = doc(db, 'users', uid);
-    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        set({ 
-          user: { ...get().user, balance: data.balance },
-          balance: data.balance,
-          profile: data, 
-          isLoading: false 
-        });
-        AsyncStorage.setItem(`zenpay_profile_${uid}`, JSON.stringify(data)).catch(console.error);
-        // Sync profile to backend
-        get().syncProfileWithBackend(data);
-      } else {
-        AsyncStorage.getItem(`zenpay_profile_${uid}`).then((localData) => {
-          if (localData) {
-            const parsed = JSON.parse(localData);
-            set({ 
-              profile: parsed, 
-              user: { ...get().user, balance: parsed.balance },
-              balance: parsed.balance,
-              isLoading: false 
-            });
-            // Sync with backend
-            get().syncProfileWithBackend(parsed);
-            // Fetch latest balance from backend
-            get().fetchProfile(uid);
-          } else {
-            set({ profile: null, isLoading: false });
-          }
-        }).catch(() => {
-          set({ profile: null, isLoading: false });
-        });
-      }
-    }, async (err) => {
-      console.warn("Firestore real-time profile listen error: ", err.message);
-      try {
-        const localData = await AsyncStorage.getItem(`zenpay_profile_${uid}`);
-        if (localData) {
-          const parsed = JSON.parse(localData);
-          set({ 
-            profile: parsed, 
-            user: { ...get().user, balance: parsed.balance },
-            balance: parsed.balance,
-            isLoading: false 
+    const userRef = doc(db, 'users', uid);
+    const unsubscribe = onSnapshot(
+      userRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          set({
+            user: { 
+              ...get().user, 
+              ...data 
+            },
+            balance: data.balance ?? 0,
+            profile: data,
+            isLoading: false
           });
-          // Sync with backend
-          get().syncProfileWithBackend(parsed);
-          // Fetch latest balance from backend
-          get().fetchProfile(uid);
-          return;
+          AsyncStorage.setItem(`zenpay_profile_${uid}`, JSON.stringify(data)).catch(console.error);
+          // Sync profile to backend
+          get().syncProfileWithBackend(data);
         }
-      } catch (storageErr) {
-        console.error("AsyncStorage profile read error: ", storageErr);
+      },
+      (error) => {
+        console.error('User listener error:', error);
       }
-      set({ error: err.message, isLoading: false });
-    });
-
+    );
+    
     set({ 
-      unsubProfileListener: unsubscribe,
       unsubscribeUser: unsubscribe 
     });
+    
     return unsubscribe;
   },
 
