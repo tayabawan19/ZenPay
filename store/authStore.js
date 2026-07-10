@@ -194,6 +194,20 @@ export const useAuthStore = create((set, get) => ({
           profileData = JSON.parse(localData);
         }
       }
+
+      if (!profileData) {
+        // Try fetching profile from backend database (where it was synced upon registration)
+        try {
+          const res = await fetch(`${API_URL}/api/auth/profile?uid=${user.uid}`);
+          const data = await res.json();
+          if (data.success && data.profile) {
+            profileData = data.profile;
+            await AsyncStorage.setItem(`zenpay_profile_${user.uid}`, JSON.stringify(profileData));
+          }
+        } catch (apiErr) {
+          console.warn("Backend profile fetch failed during login: ", apiErr.message);
+        }
+      }
       
       if (!profileData) {
         // Sign out if profile doesn't exist

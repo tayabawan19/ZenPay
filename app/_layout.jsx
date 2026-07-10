@@ -1,17 +1,38 @@
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Stack, useRouter, useSegments, useGlobalSearchParams } from 'expo-router';
 import { StripeProvider } from '@stripe/stripe-react-native';
-import { ActivityIndicator, View, StyleSheet, useColorScheme, Text, StatusBar } from 'react-native';
+import { ActivityIndicator, View, StyleSheet, useColorScheme, Text, StatusBar, Animated } from 'react-native';
 import { useAuth } from '../hooks/useAuth';
 import { initializeStripe, STRIPE_PUBLISHABLE_KEY } from '../services/stripe';
 import { colors, darkColors } from '../constants/colors';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ZenPayLogo from '../components/ZenPayLogo';
 
 export default function RootLayout() {
   const systemTheme = useColorScheme();
   const theme = systemTheme === 'dark' ? darkColors : colors;
+
+  const pulseAnim = useRef(new Animated.Value(1.0)).current;
+
+  // Pulse animation loop for splash/loading
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.08,
+          duration: 750,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1.0,
+          duration: 750,
+          useNativeDriver: true,
+        })
+      ])
+    ).start();
+  }, []);
 
   const { user, isLoading, initAuth, isPinVerified } = useAuth();
   const router = useRouter();
@@ -81,11 +102,12 @@ export default function RootLayout() {
 
   if (isLoading) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
-        <Text style={styles.splashText}>
-          Zen<Text style={{ color: theme.primary }}>Pay</Text>
-        </Text>
-        <ActivityIndicator size="large" color={theme.textPrimary} style={{ marginTop: 24 }} />
+      <View style={styles.loadingContainer}>
+        <Animated.View style={{ transform: [{ scale: pulseAnim }], marginBottom: 24 }}>
+          <ZenPayLogo size={120} />
+        </Animated.View>
+        <Text style={styles.splashText}>ZenPay</Text>
+        <Text style={styles.splashSubtitle}>Premium Wallet</Text>
       </View>
     );
   }
@@ -110,13 +132,20 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,
+    backgroundColor: '#060612',
     justifyContent: 'center',
     alignItems: 'center',
   },
   splashText: {
-    fontSize: 40,
+    fontSize: 28,
+    color: '#FFFFFF',
     fontWeight: '800',
-    color: colors.textPrimary,
-    letterSpacing: 1.5,
+    marginBottom: 8,
+  },
+  splashSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.4)',
+    letterSpacing: 3,
+    textTransform: 'uppercase',
   },
 });

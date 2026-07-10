@@ -27,6 +27,7 @@ import TopUpSheet from '../../components/TopUpSheet';
 import GlobalBackground from '../../components/GlobalBackground';
 import { formatPKR } from '../../utils/format';
 import SkeletonBox from '../../components/SkeletonBox';
+import ZenPayLogo from '../../components/ZenPayLogo';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -304,8 +305,11 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            {/* Wordmark */}
-            <Text style={styles.wordmark}>ZenPay</Text>
+            {/* Wordmark with Logo */}
+            <View style={styles.logoRow}>
+              <ZenPayLogo size={28} />
+              <Text style={styles.logoRowText}>ZenPay</Text>
+            </View>
 
             {/* Notification Bell with Pulsing Dot */}
             <TouchableOpacity
@@ -566,6 +570,16 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: -0.5,
+  },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  logoRowText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   bellButton: {
     width: 44,

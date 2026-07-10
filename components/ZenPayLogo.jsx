@@ -1,0 +1,57 @@
+import { View, StyleSheet } from 'react-native';
+import { SvgXml } from 'react-native-svg';
+
+const logoSvg = `
+<svg width="160" height="160" viewBox="0 0 160 160" 
+xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="rgba(124,111,255,0.35)"/>
+      <stop offset="60%" stop-color="rgba(124,111,255,0.08)"/>
+      <stop offset="100%" stop-color="rgba(124,111,255,0)"/>
+    </radialGradient>
+    <linearGradient id="strokeGrad" x1="0%" y1="0%" 
+    x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7C6FFF"/>
+      <stop offset="50%" stop-color="#A78BFA"/>
+      <stop offset="100%" stop-color="#FF6BBA"/>
+    </linearGradient>
+  </defs>
+  <circle cx="80" cy="80" r="80" fill="#060612"/>
+  <circle cx="80" cy="80" r="76" fill="url(#bgGlow)"/>
+  <circle cx="80" cy="80" r="72" fill="none" 
+    stroke="rgba(124,111,255,0.15)" stroke-width="1" 
+    stroke-dasharray="5 4"/>
+  <circle cx="80" cy="80" r="64" fill="rgba(124,111,255,0.04)" 
+    stroke="url(#strokeGrad)" stroke-width="2.5"/>
+  <circle cx="80" cy="80" r="50" fill="none" 
+    stroke="rgba(124,111,255,0.25)" stroke-width="1.5" 
+    stroke-dasharray="3 3"/>
+  <circle cx="80" cy="80" r="36" fill="rgba(124,111,255,0.05)" 
+    stroke="rgba(255,107,186,0.2)" stroke-width="1"/>
+  <line x1="50" y1="60" x2="110" y2="60" 
+    stroke="url(#strokeGrad)" stroke-width="7.5" 
+    stroke-linecap="round"/>
+  <line x1="110" y1="60" x2="50" y2="100" 
+    stroke="url(#strokeGrad)" stroke-width="5.5" 
+    stroke-linecap="round" opacity="0.9"/>
+  <line x1="50" y1="100" x2="110" y2="100" 
+    stroke="url(#strokeGrad)" stroke-width="7.5" 
+    stroke-linecap="round"/>
+  <circle cx="80" cy="80" r="3" fill="rgba(255,255,255,0.25)"/>
+  <circle cx="80" cy="16" r="3.5" fill="#7C6FFF"/>
+  <circle cx="144" cy="80" r="3" fill="#A78BFA"/>
+  <circle cx="80" cy="144" r="3.5" fill="#FF6BBA"/>
+  <circle cx="16" cy="80" r="3" fill="#A78BFA"/>
+  <circle cx="126" cy="34" r="2" fill="rgba(124,111,255,0.5)"/>
+  <circle cx="126" cy="126" r="2" fill="rgba(255,107,186,0.4)"/>
+  <circle cx="34" cy="126" r="2" fill="rgba(255,107,186,0.4)"/>
+  <circle cx="34" cy="34" r="2" fill="rgba(124,111,255,0.5)"/>
+</svg>
+`;
+
+export default function ZenPayLogo({ size = 48 }) {
+  return (
+    <SvgXml xml={logoSvg} width={size} height={size} />
+  );
+}

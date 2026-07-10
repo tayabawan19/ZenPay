@@ -24,6 +24,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { colors } from '../../constants/colors';
 import GlobalBackground from '../../components/GlobalBackground';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ZenPayLogo from '../../components/ZenPayLogo';
 
 const { height: screenHeight } = Dimensions.get('window');
 
@@ -213,20 +214,11 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Top Logo Section (40% height approx) */}
+          {/* Top Logo Section */}
           <View style={styles.logoSection}>
-            <View style={styles.logoMarkContainer}>
-              {/* Outer Ring */}
-              <Animated.View style={[styles.outerRing, { transform: [{ rotate: spin }] }]} />
-              
-              {/* Inner Pulsing Circle */}
-              <Animated.View style={[styles.innerCircle, { transform: [{ scale: pulseAnim }] }]}>
-                <Text style={styles.logoLetter}>Z</Text>
-              </Animated.View>
-            </View>
-            
+            <ZenPayLogo size={80} />
             <Text style={styles.logoText}>ZenPay</Text>
-            <Text style={styles.subtitle}>PREMIUM DIGITAL WALLET</Text>
+            <Text style={styles.subtitle}>Premium Wallet</Text>
           </View>
 
           {/* Bottom Glass Card (60% height approx) */}
@@ -419,10 +411,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   logoSection: {
-    height: screenHeight * 0.38,
+    paddingTop: Platform.OS === 'ios' ? 50 : 30,
+    paddingBottom: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 40 : 20,
+    marginBottom: 32,
   },
   logoMarkContainer: {
     width: 80,
@@ -460,12 +453,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: -0.5,
+    marginTop: 16,
   },
   subtitle: {
     fontSize: 11,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.3)',
-    letterSpacing: 2.5,
+    color: 'rgba(255, 255, 255, 0.4)',
+    letterSpacing: 2,
     marginTop: 6,
   },
   glassCard: {

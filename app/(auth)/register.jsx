@@ -23,6 +23,7 @@ import { auth } from '../../services/firebase';
 import { colors } from '../../constants/colors';
 import { API_URL } from '../../constants/api';
 import GlobalBackground from '../../components/GlobalBackground';
+import ZenPayLogo from '../../components/ZenPayLogo';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -537,9 +538,10 @@ export default function RegisterScreen() {
             >
               <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
             </TouchableOpacity>
+            <ZenPayLogo size={64} />
             <Text style={styles.logoText}>ZenPay</Text>
             <Text style={styles.subtitle}>
-              {step === 1 ? 'CREATE ACCOUNT' : 'CHECK YOUR EMAIL'}
+              {step === 1 ? 'Create Account' : 'Check Your Email'}
             </Text>
           </View>
 
@@ -889,7 +891,7 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 32,
     position: 'relative',
     paddingVertical: 12,
   },
@@ -907,17 +909,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoText: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: '800',
-    color: '#7C6FFF',
+    color: '#FFFFFF',
     letterSpacing: -0.5,
+    marginTop: 16,
   },
   subtitle: {
     fontSize: 11,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.3)',
+    color: 'rgba(255, 255, 255, 0.4)',
     letterSpacing: 2,
-    marginTop: 4,
+    marginTop: 6,
   },
   glassCard: {
     backgroundColor: 'rgba(124, 111, 255, 0.08)',

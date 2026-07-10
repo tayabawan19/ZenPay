@@ -21,6 +21,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useTransactions } from '../../hooks/useTransactions';
 import { colors } from '../../constants/colors';
 import GlobalBackground from '../../components/GlobalBackground';
+import ZenPayLogo from '../../components/ZenPayLogo';
 
 // Reusable Custom Toggle component (same as cards.jsx)
 const CustomToggle = ({ value, onValueChange, activeColor = '#7C6FFF', trackActiveBg = 'rgba(124, 111, 255, 0.3)' }) => {
@@ -286,7 +287,13 @@ export default function ProfileScreen() {
             />
           }
         >
-          <Text style={styles.title}>Profile</Text>
+          <View style={styles.headerRow}>
+            <Text style={styles.title}>Profile</Text>
+            <View style={styles.logoBadge}>
+              <ZenPayLogo size={20} />
+              <Text style={styles.logoBadgeText}>ZenPay</Text>
+            </View>
+          </View>
 
           {/* Profile Hero Glass Card */}
           <View style={styles.profileCard}>
@@ -507,8 +514,29 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     color: '#FFFFFF',
-    marginBottom: 16,
     letterSpacing: -0.5,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  logoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(124, 111, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(124, 111, 255, 0.15)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  logoBadgeText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#A78BFA',
   },
   profileCard: {
     alignItems: 'center',
